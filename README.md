@@ -30,8 +30,8 @@ Setup and Build
 - Artifacts:
   - Regular JAR: build\libs\<name>-<version>.jar
   - Fat/uber JAR: ./gradlew.bat uberJar creates build\libs\<name>-<version>-uber.jar
-    - Note: The uberJar task currently copies the built uber JAR to C:\devel\bin\keycloak-26.3.4\providers after build.
-      TODO: Make this destination configurable (currently hard‑coded for local development).
+    - Note: The uberJar task may copy the built uber JAR to a local development Keycloak providers directory.
+      TODO: Make this destination configurable (currently hard‑coded for local development if present).
 
 Deploy to Keycloak
 - Copy either the regular JAR (plus runtime deps if needed) or the uber JAR into your Keycloak providers directory. Examples:
@@ -43,21 +43,22 @@ Deploy to Keycloak
   This enables the realm‑restapi‑extension SPI which Keycloak marks as internal.
 
 Entry points (SPIs)
-- Realm REST extension: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> ChallengeEndpointProviderFactory
-- Well‑Known provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> OAuthAuthorizationServerConfigWithChallengeFactory
-- Client authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> AttestationClientAuthenticatorFactory
+- Realm REST extension: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeEndpointProviderFactory
+- Well‑Known provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
+- Client authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationClientAuthenticatorFactory
 
 Usage
 - Well‑known discovery augmentation:
-  - The OIDC discovery document will include a challenge_endpoint field and supported lists for attestation and PoP algorithms.
+  - The OIDC discovery document will include:
+    - challenge_endpoint: URL of the challenge endpoint (example: {issuer}/challenge)
+    - token_endpoint_auth_methods_supported includes attest_jwt_client_auth
+    - client_attestation_signing_alg_values_supported: [ES256, ES384, ES512]
+    - client_attestation_pop_signing_alg_values_supported: [ES256, ES384, ES512]
 - Challenge endpoint URL:
-  - Advertised by well‑known as: {issuer}/protocol/openid-connect/ext/acba/challenge
-  - Current implementation details:
-    - The RealmResourceProviderFactory.getId() returns "protocol" and the resource class/method has no @Path, which effectively mounts GET at /realms/{realm}/protocol.
-    - This is likely not the final desired path and may conflict with built‑in protocol routes.
-    - TODO: Align the provider id and resource @Path to match the well‑known value (e.g., protocol/openid-connect/ext/acba/challenge).
-- Example request (intended):
-  - GET https://<host>/realms/<realm>/protocol/openid-connect/ext/acba/challenge
+  - Mounted at: https://<host>/realms/<realm>/challenge
+  - Also advertised by well‑known as: {issuer}/challenge
+- Example request:
+  - GET https://<host>/realms/<realm>/challenge
 - Current response (per code):
   {
     "attestation_challenge": "<base64url>"
@@ -74,14 +75,14 @@ Client Authenticator
   - Parses Client Attestation JWT; extracts sub (client_id) and cnf.jwk.
   - Loads trusted certificates via LotlTrustStore (LOTL refresh task keeps it updated).
   - TODO: Verify the Client Attestation JWT signature against the trusted certificates (placeholder exists in code).
-  - Verifies the PoP JWT signature with the public key from cnf.jwk (RSA or EC currently; EdDSA support is a TODO).
+  - Verifies the PoP JWT signature with the public key from cnf.jwk (currently EC algorithms configured; EdDSA support is a TODO).
   - Emits Keycloak events and returns OAuth error invalid_client_attestation on failures.
 
 Gradle Tasks / Scripts
 - ./gradlew.bat build — Compiles and packages the provider JAR(s).
 - ./gradlew.bat test — Runs tests (JUnit Platform).
 - ./gradlew.bat spotlessApply — Applies ktlint formatting via Spotless.
-- ./gradlew.bat uberJar — Builds a fat JAR and copies it to a development Keycloak providers dir (see note above).
+- ./gradlew.bat uberJar — Builds a fat JAR and may copy it to a development Keycloak providers dir (see note above).
 
 Environment and Configuration
 - MicroProfile Config (bundled in JAR):
@@ -95,7 +96,7 @@ Environment and Configuration
 - TODO: Externalize uberJar copy destination via a Gradle property (e.g., -PuberJarCopyDir) or environment variable.
 
 Tests
-- Location: src\test\kotlin\org\keycloak\ext\abca\auth\AttestationClientAuthenticatorTest.kt
+- Location: src\test\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\auth\AttestationClientAuthenticatorTest.kt
 - Run: ./gradlew.bat test
 - Coverage:
   - Includes tests around the AttestationClientAuthenticator behavior using mocked Keycloak components and Nimbus JOSE.
@@ -104,15 +105,14 @@ Tests
 Project Structure
 - build.gradle.kts — Gradle build (Kotlin DSL); defines dependencies, Kotlin/JVM toolchain, Spotless, uberJar task.
 - gradle\libs.versions.toml — Version catalog for dependencies and plugins.
-- src\main\kotlin\org\keycloak\ext\abca\Spec.kt — Shared constants (e.g., header names, error codes).
-- src\main\kotlin\org\keycloak\ext\abca\challenge\* — Challenge endpoint and provider factory.
-- src\main\kotlin\org\keycloak\ext\abca\auth\* — Client authenticator and factory.
-- src\main\kotlin\org\keycloak\ext\abca\trust\* — LOTL fetch/refresh and trust store logic.
-- src\main\kotlin\org\keycloak\ext\abca\wellknown\* — Well‑known augmentation provider and factory.
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\Spec.kt — Shared constants (e.g., header names, error codes).
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\challenge\* — Challenge endpoint and provider factory.
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\auth\* — Client authenticator and factory.
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\trust\* — LOTL fetch/refresh and trust store logic.
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\wellknown\* — Well‑known augmentation provider and factory.
 - src\main\resources\META-INF\services\* — Service provider registrations.
 - src\main\resources\META-INF\microprofile-config.properties — Enables realm REST extension SPI; optional ABCA config placeholders.
 - src\test\kotlin\... — Tests.
 
 License
-- No LICENSE file detected in the repository.
-- TODO: Add a LICENSE file (e.g., MIT, Apache‑2.0) and update this section accordingly.
+- See the LICENSE file in the repository root for licensing terms.
