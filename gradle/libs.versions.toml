@@ -1,0 +1,40 @@
+[versions]
+kotlin = "2.1.20"
+java = "17"
+keycloak = "26.3.4"
+jakarta-ws-rs = "3.1.0"
+spotless = "7.0.2"
+ktlint = "0.50.0"
+dss = "6.2"
+nimbus = "9.37.3"
+statium = "0.4.0"
+ktor = "3.2.1"
+kotlinx-serialization = "1.7.3"
+# Test libraries
+mockito-core = "5.14.2"
+mockito-inline = "5.2.0"
+mockito-kotlin = "5.3.1"
+jersey-common = "3.1.7"
+
+[libraries]
+keycloak-server-spi = { module = "org.keycloak:keycloak-server-spi", version.ref = "keycloak" }
+keycloak-services = { module = "org.keycloak:keycloak-services", version.ref = "keycloak" }
+jakarta-ws-rs-api = { module = "jakarta.ws.rs:jakarta.ws.rs-api", version.ref = "jakarta-ws-rs" }
+dss-service = { module = "eu.europa.ec.joinup.sd-dss:dss-service", version.ref = "dss" }
+dss-validation = { module = "eu.europa.ec.joinup.sd-dss:dss-validation", version.ref = "dss" }
+dss-tsl-validation = { module = "eu.europa.ec.joinup.sd-dss:dss-tsl-validation", version.ref = "dss" }
+dss-utils-apache-commons = { module = "eu.europa.ec.joinup.sd-dss:dss-utils-apache-commons", version.ref = "dss" }
+eudi-lib-kmp-statium = { module = "eu.europa.ec.eudi:eudi-lib-kmp-statium-jvm", version.ref = "statium"}
+ktor = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+# Test libraries
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito-core" }
+mockito-inline = { module = "org.mockito:mockito-inline", version.ref = "mockito-inline" }
+mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version.ref = "mockito-kotlin" }
+jersey-common = { module = "org.glassfish.jersey.core:jersey-common", version.ref = "jersey-common" }
+nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
