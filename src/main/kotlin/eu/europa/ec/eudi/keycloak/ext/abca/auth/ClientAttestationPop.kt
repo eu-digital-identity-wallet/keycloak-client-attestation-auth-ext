@@ -20,6 +20,7 @@ class ClientAttestationPop(private val jwt: SignedJWT) {
     val challenge: Challenge? = jwt.jwtClaimsSet.getStringClaim(Spec.CHALLENGE_CLAIM)?.let { Challenge(it) }
 
     init {
+        val nowMillisWithSkew = System.currentTimeMillis() + 60_000L
         require(jwt.state == JWSObject.State.SIGNED || jwt.state == JWSObject.State.VERIFIED) {
             "Client attestation PoP JWT is not signed"
         }
@@ -40,11 +41,11 @@ class ClientAttestationPop(private val jwt: SignedJWT) {
         requireNotNull(iat) {
             "Missing iat in client attestation PoP JWT"
         }
-        require(iat.time <= System.currentTimeMillis()) {
+        require(iat.time <= nowMillisWithSkew) {
             "Invalid issuance time in client attestation PoP JWT"
         }
         jwt.jwtClaimsSet.notBeforeTime?.let {
-            require(it.time <= System.currentTimeMillis()) {
+            require(it.time <= nowMillisWithSkew) {
                 "Invalid not before time in client attestation PoP JWT"
             }
         }

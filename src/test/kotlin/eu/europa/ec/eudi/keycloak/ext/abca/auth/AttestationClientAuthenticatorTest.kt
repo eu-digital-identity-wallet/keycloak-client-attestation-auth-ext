@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.KeyUse
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
+import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.keycloak.ext.abca.Spec
@@ -58,6 +59,7 @@ class AttestationClientAuthenticatorTest {
 
     private lateinit var holderKey: ECKey
 
+
     @BeforeEach
     fun setUp() {
         context = mock()
@@ -102,13 +104,13 @@ class AttestationClientAuthenticatorTest {
 
         // Ensure trust store is non-empty by default
         LotlTrustStore.update(listOf(mock()))
-
         // Generate a fresh holder EC key (P-256) for cnf.jwk
         holderKey = ECKeyGenerator(Curve.P_256)
             .keyUse(KeyUse.SIGNATURE)
             .algorithm(JWSAlgorithm.ES256)
             .keyID(UUID.randomUUID().toString())
             .generate()
+
     }
 
     @Nested
@@ -359,7 +361,7 @@ class AttestationClientAuthenticatorTest {
             val clientId = "abca_test"
 
             val pastClock = object : Clock {
-                override fun now() = Clock.System.now().minus(1.days)
+                override fun now() = Clock.System.now().minus(90.days)
             }
             val (attestation, pop) = generateAttestationAndPop(clientId, clock = pastClock)
 
@@ -436,8 +438,8 @@ class AttestationClientAuthenticatorTest {
             subject?.let {
                 subject(subject)
             }
-            notBeforeTime(Date(nowMillis - 60.seconds.inWholeMilliseconds))
-            expirationTime(Date(nowMillis + 60.seconds.inWholeMilliseconds))
+            notBeforeTime(Date(nowMillis - 60.days.inWholeMilliseconds))
+            expirationTime(Date(nowMillis + 60.days.inWholeMilliseconds))
             cnfJwk?.let {
                 claim(Spec.CNF_CLAIM, mapOf(Spec.JWK_CLAIM to cnfJwk))
             }
@@ -481,8 +483,9 @@ class AttestationClientAuthenticatorTest {
 
     @Test
     fun test() {
-        attestationJwt("abca_test").also { println(it.serialize()) }
+        attestationJwt("eudiw-abca").also { println(it.serialize()) }
         val challenge = Challenge("eyJhbGciOiJFUzI1NiIsImtpZCIgOiAiOGZNbGQ1d01OX1duX2J2aGJ1aVRCSWRvWnk1SzR0aTdTLXRNVU16MzJoUSJ9.eyJleHAiOjE3NTkyMjQ0NjQsImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODA4MC9yZWFsbXMvbWFzdGVyIiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9tYXN0ZXIiLCJzYWx0IjoiRlJKTHovNEpXZ0k3TVVTQ0lpK0Zha0xxUFJFMjA5VW1oWGFzd2NWc0FySk93TGk0TzIyMkJsbFNlZDJkemNDTkFQWHI4OHJEMFhHRXdadTZ4VmxnIiwic291cmNlX2VuZHBvaW50IjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9tYXN0ZXIvY2hhbGxlbmdlIn0.csFKZDOlaxj0N3SZCT_KSoZesmT-0_luF9jVgEKJBSmzBN1r75szj5lSMeEHzKnsf8g86jtYtriAa_pqeuNFzg")
         popJwt("abca_test", holderKey, challenge = challenge).also { println(it.serialize()) }
     }
+
 }

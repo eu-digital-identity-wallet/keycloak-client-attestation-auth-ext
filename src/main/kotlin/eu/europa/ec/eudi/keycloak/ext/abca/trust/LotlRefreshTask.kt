@@ -18,7 +18,7 @@ class LotlRefreshTask(
     private val lotlUri: URI,
     private val serviceTypeFilter: String? = null,
     private val readTimeoutMs: Long = 15_000,
-    private val clusterGuardKey: String = "abca.lotl.refresh",
+    private val clusterGuardKey: String = "ext.abca.lotl.refresh",
 ) : ScheduledTask {
 
     override fun run(session: KeycloakSession) {

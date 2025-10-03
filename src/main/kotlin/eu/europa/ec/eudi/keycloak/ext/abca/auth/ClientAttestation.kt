@@ -18,6 +18,7 @@ class ClientAttestation(jwt: SignedJWT) {
 
     init {
         val nowMillis = System.currentTimeMillis()
+        val nowMillisWithSkew = nowMillis + 60_000L
         require(jwt.state == JWSObject.State.SIGNED || jwt.state == JWSObject.State.VERIFIED) {
             "Client attestation JWT is not signed"
         }
@@ -41,12 +42,12 @@ class ClientAttestation(jwt: SignedJWT) {
             "Missing cnf in client attestation JWT"
         }
         jwt.jwtClaimsSet.issueTime?.let {
-            require(it.time <= nowMillis) {
+            require(it.time <= nowMillisWithSkew) {
                 "Invalid issuance time in client attestation JWT"
             }
         }
         jwt.jwtClaimsSet.notBeforeTime?.let {
-            require(it.time <= nowMillis) {
+            require(it.time <= nowMillisWithSkew) {
                 "Invalid not before time in client attestation JWT"
             }
         }

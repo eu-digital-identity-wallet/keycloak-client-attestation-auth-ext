@@ -27,7 +27,7 @@ class AttestationClientAuthenticatorFactory : ClientAuthenticatorFactory {
 
     private var lotlUrl: String? = null
     private var serviceTypeFilter: String? = null
-    private var lotlRefreshIntervalSeconds: Int = 60
+    private var lotlRefreshIntervalSeconds: Int = 300
     private var lotlHttpTimeoutMs: Int = 15000
 
     override fun init(config: Config.Scope?) {
