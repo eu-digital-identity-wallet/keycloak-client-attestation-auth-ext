@@ -1,7 +1,7 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.challenge
 
 import eu.europa.ec.eudi.keycloak.ext.abca.Spec
-import jakarta.ws.rs.GET
+import jakarta.ws.rs.POST
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.CacheControl
 import jakarta.ws.rs.core.MediaType
@@ -10,7 +10,7 @@ import org.keycloak.models.KeycloakSession
 
 class ChallengeEndpoint(private val session: KeycloakSession) {
 
-    @GET
+    @POST
     @Produces(MediaType.APPLICATION_JSON)
     fun getChallenge(): Response {
         val entity = mapOf(
