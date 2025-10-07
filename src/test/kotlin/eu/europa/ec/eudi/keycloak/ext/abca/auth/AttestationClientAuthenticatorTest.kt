@@ -137,7 +137,7 @@ class AttestationClientAuthenticatorTest {
 
             val (attestation, pop) = generateAttestationAndPop(clientId)
 
-            whenever(httpHeaders.getHeaderString(Spec.HEADER_CLIENT_ATTESTATION)).thenReturn("attestation")
+            whenever(httpHeaders.getHeaderString(Spec.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(Spec.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
 
             val client: ClientModel = mock()
