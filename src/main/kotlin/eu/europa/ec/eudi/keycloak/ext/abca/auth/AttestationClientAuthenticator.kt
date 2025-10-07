@@ -1,6 +1,5 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
-import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.keycloak.ext.abca.Spec
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.LotlTrustStore
 import eu.europa.ec.eudi.statium.Status
@@ -26,7 +25,7 @@ class AttestationClientAuthenticator : ClientAuthenticator {
         if (attestationPopHeader.isNullOrBlank()) return context.failWith(AttestationFailure.MissingClientAttestationPop)
 
         val clientAttestation = runCatching {
-            ClientAttestation(SignedJWT.parse(attestationHeader))
+            ClientAttestation(attestationHeader)
         }.getOrElse {
             return context.failWith(AttestationFailure.BadAttestationFormat)
         }
@@ -61,7 +60,7 @@ class AttestationClientAuthenticator : ClientAuthenticator {
 
         // Parse client attestation PoP jwt
         val clientAttestationPop = runCatching {
-            ClientAttestationPop(SignedJWT.parse(attestationPopHeader))
+            ClientAttestationPop(attestationPopHeader)
         }.getOrElse {
             return context.failWith(AttestationFailure.BadAttestationPopFormat)
         }

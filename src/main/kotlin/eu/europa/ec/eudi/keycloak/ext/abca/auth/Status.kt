@@ -2,7 +2,6 @@ package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
 import eu.europa.ec.eudi.statium.GetStatus
 import eu.europa.ec.eudi.statium.GetStatusListToken
-import eu.europa.ec.eudi.statium.Status
 import eu.europa.ec.eudi.statium.StatusIndex
 import eu.europa.ec.eudi.statium.StatusReference
 import io.ktor.client.HttpClient
@@ -23,7 +22,7 @@ data class Status(
     @SerialName("status_list") val statusList: StatusList,
 ) {
 
-    internal fun verifyStatus(): Status {
+    internal fun verifyStatus(): eu.europa.ec.eudi.statium.Status {
         val getStatusListToken = GetStatusListToken.usingJwt(
             clock = Clock.System,
             httpClient = HttpClient(),

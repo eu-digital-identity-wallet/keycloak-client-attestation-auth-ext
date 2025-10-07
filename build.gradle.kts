@@ -58,7 +58,10 @@ kotlin {
     }
     compilerOptions {
         apiVersion = KotlinVersion.KOTLIN_2_1
-        freeCompilerArgs.add("-opt-in=kotlin.time.ExperimentalTime")
+        freeCompilerArgs.addAll(
+            "-opt-in=kotlin.time.ExperimentalTime",
+            "-Xconsistent-data-class-copy-visibility",
+        )
     }
 }
 

@@ -1,68 +1,166 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
+import com.nimbusds.jose.JOSEObjectType
+import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSObject
+import com.nimbusds.jose.JWSVerifier
+import com.nimbusds.jose.crypto.ECDSAVerifier
+import com.nimbusds.jose.crypto.MACSigner
+import com.nimbusds.jose.crypto.RSASSAVerifier
+import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
+import com.nimbusds.jose.jwk.JWKSet
+import com.nimbusds.jose.jwk.RSAKey
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier
+import com.nimbusds.jose.proc.JWSVerificationKeySelector
+import com.nimbusds.jose.proc.SecurityContext
+import com.nimbusds.jose.util.JSONObjectUtils
+import com.nimbusds.jose.util.X509CertUtils
+import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
+import com.nimbusds.jwt.proc.DefaultJWTProcessor
 import eu.europa.ec.eudi.keycloak.ext.abca.Spec
+import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import kotlinx.serialization.json.Json
-import org.keycloak.util.JsonSerialization
-import java.util.*
+import kotlinx.serialization.json.JsonObject
 
-class ClientAttestation(jwt: SignedJWT) {
+data class ClientAttestation private constructor(
+    val subject: String,
+    val jwk: JWK,
+    val status: Status?,
+) {
+    companion object {
+        operator fun invoke(jwt: String) = ClientAttestation(SignedJWT.parse(jwt))
 
-    val issuer: String = jwt.jwtClaimsSet.issuer
-    val subject: String = jwt.jwtClaimsSet.subject
-    val expirationTime: Date = jwt.jwtClaimsSet.expirationTime
-    val status: Status?
-    val jwk: JWK
+        operator fun invoke(jwt: SignedJWT) = with(jwt) {
+            requireIsSignedOrVerified()
+            requireType(Spec.CLIENT_ATTESTATION_JWT_TYPE)
+            requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf"))
+            verifySignature()
 
-    init {
-        val nowMillis = System.currentTimeMillis()
-        val nowMillisWithSkew = nowMillis + 60_000L
-        require(jwt.state == JWSObject.State.SIGNED || jwt.state == JWSObject.State.VERIFIED) {
-            "Client attestation JWT is not signed"
-        }
-        val typ = jwt.header.type?.type
-        requireNotNull(typ) { "Missing JWT type" }
-        require(typ == Spec.CLIENT_ATTESTATION_JWT_TYPE) { "Invalid JWT type" }
-        requireNotNull(jwt.jwtClaimsSet.issuer) {
-            "Missing issuer in client attestation JWT"
-        }
-        requireNotNull(jwt.jwtClaimsSet.subject) {
-            "Missing subject in client attestation JWT"
-        }
-        requireNotNull(jwt.jwtClaimsSet.expirationTime) {
-            "Missing expiration time in client attestation JWT"
-        }
-        require(expirationTime.time > nowMillis) {
-            "Expired attestation JWT"
-        }
-        val cnf = jwt.jwtClaimsSet.getClaim(Spec.CNF_CLAIM) as Map<*, *>?
-        requireNotNull(cnf) {
-            "Missing cnf in client attestation JWT"
-        }
-        jwt.jwtClaimsSet.issueTime?.let {
-            require(it.time <= nowMillisWithSkew) {
-                "Invalid issuance time in client attestation JWT"
-            }
-        }
-        jwt.jwtClaimsSet.notBeforeTime?.let {
-            require(it.time <= nowMillisWithSkew) {
-                "Invalid not before time in client attestation JWT"
-            }
-        }
-        jwk = JWK.parse(JsonSerialization.writeValueAsString(cnf[Spec.JWK_CLAIM]))
+            val subject = jwt.jwtClaimsSet.subject
+            val jwk = requireValidConfirmationJwk()
+            val status = jwtClaimsSet.status()
 
-        require(!jwk.isPrivate) {
-            "JWK must not be private"
-        }
-
-        status = jwt.jwtClaimsSet.claims[Spec.STATUS_CLAIM]?.let { raw ->
-            runCatching {
-                val rawJson = JsonSerialization.writeValueAsString(raw)
-                val json = Json { ignoreUnknownKeys = true }
-                json.decodeFromString(Status.serializer(), rawJson)
-            }.getOrNull()
+            ClientAttestation(subject, jwk, status)
         }
     }
 }
+
+data class ClientAttestationPop private constructor(
+    val issuer: String,
+    val audiences: List<String>,
+    val challenge: Challenge?,
+    internal val jwt: SignedJWT,
+) {
+    companion object {
+        operator fun invoke(jwt: String) = ClientAttestationPop(SignedJWT.parse(jwt))
+
+        operator fun invoke(jwt: SignedJWT) = with(jwt) {
+            requireIsSignedOrVerified()
+            requireNotMACSigned()
+            requireType(Spec.CLIENT_ATTESTATION_POP_JWT_TYPE)
+            requireMandatoryClaims(setOf("iss", "aud", "jti", "iat"))
+
+            val issuer: String = jwt.jwtClaimsSet.issuer
+            val audiences = jwt.jwtClaimsSet.audience ?: emptyList()
+            val challenge: Challenge? = jwt.jwtClaimsSet.getStringClaim(Spec.CHALLENGE_CLAIM)?.let { Challenge(it) }
+
+            ClientAttestationPop(issuer, audiences, challenge, jwt)
+        }
+    }
+
+    fun verifyPop(clientAttestation: ClientAttestation) {
+        fun JWK.verifier(): JWSVerifier = when (this) {
+            is RSAKey -> RSASSAVerifier(this)
+            is ECKey -> ECDSAVerifier(this)
+            else -> error("Unsupported key type: ${this.algorithm}")
+        }
+
+        val verified = this.jwt.verify(clientAttestation.jwk.verifier())
+        require(verified) { "Invalid signature" }
+    }
+}
+
+private fun SignedJWT.verifySignature() {
+    val header = header
+
+    // Try JWK directly from header, otherwise derive from first x5c certificate
+    val headerJwk: JWK? = header.jwk
+    val jwk: JWK? = headerJwk ?: header.x509CertChain?.firstOrNull()?.let { b64 ->
+        X509CertUtils.parse(b64.decode())?.let { JWK.parse(it) }
+    }
+
+    requireNotNull(jwk) { "Missing JWK or x5c in JWS header" }
+
+    DefaultJWTProcessor<SecurityContext>().apply {
+        jwsTypeVerifier = DefaultJOSEObjectTypeVerifier(JOSEObjectType(Spec.CLIENT_ATTESTATION_JWT_TYPE))
+        jwsKeySelector = JWSVerificationKeySelector(
+            header.algorithm,
+            ImmutableJWKSet(JWKSet(jwk)),
+        )
+    }.also {
+        it.process(this, null)
+    }
+}
+
+private fun SignedJWT.requireMandatoryClaims(claims: Set<String>) =
+    DefaultJWTClaimsVerifier<SecurityContext>(
+        null,
+        claims,
+    ).apply {
+        maxClockSkew = 60
+    }.verify(jwtClaimsSet, null)
+
+private fun SignedJWT.requireIsSignedOrVerified() =
+    require(state == JWSObject.State.SIGNED || state == JWSObject.State.VERIFIED) {
+        "Client attestation JWT is not signed"
+    }
+
+private fun SignedJWT.requireNotMACSigned() =
+    require(!header.algorithm.isMACSigning()) {
+        "MAC signing algorithm not allowed"
+    }
+
+private fun SignedJWT.requireValidConfirmationJwk(): JWK {
+    val jwk = jwtClaimsSet.cnf().cnfJwk()
+    require(!jwk.isPrivate) {
+        "JWK must not be private"
+    }
+    return jwk
+}
+
+private fun SignedJWT.requireType(expectedType: String) {
+    val typ = header.type?.type
+    requireNotNull(typ) { "Missing JWT type" }
+    require(typ == expectedType) { "Invalid JWT type" }
+}
+
+private fun JWTClaimsSet.cnf(): JsonObject {
+    return requireNotNull(getJSONObjectClaim(Spec.CNF_CLAIM)).toJsonObject()
+}
+
+private fun JsonObject.cnfJwk(): JWK {
+    return requireNotNull(this[Spec.CNF_JWK_CLAIM]).let {
+        val jsonString = Json.encodeToString(it)
+        JWK.parse(jsonString)
+    }
+}
+
+private fun JWTClaimsSet.status(): Status? {
+    return getJSONObjectClaim(Spec.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
+        runCatching {
+            val json = Json { ignoreUnknownKeys = true }
+            json.decodeFromString(Status.serializer(), Json.encodeToString(jsonObj))
+        }.getOrNull()
+    }
+}
+
+private fun Map<String, Any?>.toJsonObject(): JsonObject {
+    val jsonString = JSONObjectUtils.toJSONString(this)
+    return Json.decodeFromString(jsonString)
+}
+
+private fun JWSAlgorithm.isMACSigning(): Boolean = this in MACSigner.SUPPORTED_ALGORITHMS

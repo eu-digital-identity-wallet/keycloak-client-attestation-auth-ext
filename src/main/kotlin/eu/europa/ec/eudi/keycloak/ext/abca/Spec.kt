@@ -9,7 +9,7 @@ object Spec {
 
     // client attestation claims
     const val CNF_CLAIM = "cnf"
-    const val JWK_CLAIM = "jwk"
+    const val CNF_JWK_CLAIM = "jwk"
     const val STATUS_CLAIM = "status"
 
     // client attestation pop claims
