@@ -8,40 +8,33 @@ import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.KeyUse
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
+import com.nimbusds.jose.util.Base64
+import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.keycloak.ext.abca.Spec
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.LotlTrustStore
 import jakarta.ws.rs.core.HttpHeaders
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.keycloak.authentication.ClientAuthenticationFlowContext
 import org.keycloak.events.EventBuilder
 import org.keycloak.http.HttpRequest
-import org.keycloak.models.ClientModel
-import org.keycloak.models.ClientProvider
-import org.keycloak.models.KeycloakContext
-import org.keycloak.models.KeycloakSession
-import org.keycloak.models.KeycloakUriInfo
-import org.keycloak.models.RealmModel
+import org.keycloak.models.*
 import org.keycloak.protocol.oid4vc.issuance.keybinding.CNonceHandler
 import org.mockito.Mockito.mock
-import org.mockito.kotlin.any
-import org.mockito.kotlin.anyOrNull
-import org.mockito.kotlin.doNothing
-import org.mockito.kotlin.never
-import org.mockito.kotlin.verify
-import org.mockito.kotlin.whenever
+import org.mockito.Mockito.mockStatic
+import org.mockito.kotlin.*
 import java.net.URI
-import java.util.Date
-import java.util.UUID
+import java.security.cert.X509Certificate
+import java.util.*
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
-class AttestationClientAuthenticatorTest {
+class AttestationBasedClientAuthenticatorFactoryTest {
 
     private lateinit var context: ClientAuthenticationFlowContext
     private lateinit var httpRequest: HttpRequest
@@ -54,7 +47,8 @@ class AttestationClientAuthenticatorTest {
 
     private lateinit var cNonceHandler: CNonceHandler
 
-    private val authenticator = AttestationClientAuthenticator()
+    private lateinit var authenticator: AttestationBasedClientAuthenticatorFactory
+    private lateinit var x509CertUtilsMock: org.mockito.MockedStatic<X509CertUtils>
 
     private lateinit var holderKey: ECKey
 
@@ -69,6 +63,7 @@ class AttestationClientAuthenticatorTest {
         keycloakUriInfo = mock()
         eventBuilder = mock()
         cNonceHandler = mock()
+        authenticator = AttestationBasedClientAuthenticatorFactory()
 
         whenever(context.httpRequest).thenReturn(httpRequest)
         whenever(httpRequest.httpHeaders).thenReturn(httpHeaders)
@@ -85,10 +80,15 @@ class AttestationClientAuthenticatorTest {
         whenever(kcContext.realm).thenReturn(realm)
         whenever(realm.name).thenReturn("master")
 
+        x509CertUtilsMock = mockStatic(X509CertUtils::class.java)
+        x509CertUtilsMock.`when`<X509Certificate> {
+            X509CertUtils.parse(org.mockito.ArgumentMatchers.any(ByteArray::class.java))
+        }.thenReturn(mock())
+
         // Provide CNonceHandler for challenge verification
         whenever(session.getProvider(CNonceHandler::class.java)).thenReturn(cNonceHandler)
         // Let verifyCNonce accept any inputs (no-op)
-        doNothing().whenever(cNonceHandler).verifyCNonce(any(), any(), org.mockito.kotlin.any())
+        doNothing().whenever(cNonceHandler).verifyCNonce(any(), any(), any())
 
         // Mock OAuth2 WellKnown provider to stabilize issuer/audience checks
         val wellKnownProvider: org.keycloak.wellknown.WellKnownProvider = mock()
@@ -100,14 +100,17 @@ class AttestationClientAuthenticatorTest {
         ).thenReturn(wellKnownProvider)
         whenever(wellKnownProvider.config).thenReturn(mapOf("issuer" to "http://localhost:8080/realms/master"))
 
-        // Ensure trust store is non-empty by default
-        LotlTrustStore.update(listOf(mock()))
         // Generate a fresh holder EC key (P-256) for cnf.jwk
         holderKey = ECKeyGenerator(Curve.P_256)
             .keyUse(KeyUse.SIGNATURE)
             .algorithm(JWSAlgorithm.ES256)
             .keyID(UUID.randomUUID().toString())
             .generate()
+    }
+
+    @AfterEach
+    fun tearDown() {
+        x509CertUtilsMock.close()
     }
 
     @Nested
@@ -123,6 +126,7 @@ class AttestationClientAuthenticatorTest {
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
             whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+            whenever(context.client).thenReturn(client)
 
             authenticator.authenticateClient(context)
 
@@ -143,6 +147,7 @@ class AttestationClientAuthenticatorTest {
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
             whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+            whenever(context.client).thenReturn(client)
 
             authenticator.authenticateClient(context)
 
@@ -329,29 +334,6 @@ class AttestationClientAuthenticatorTest {
     }
 
     @Nested
-    inner class TrustStoreChecks {
-        @Test
-        fun `fails when trust store is empty`() {
-            LotlTrustStore.update(emptyList())
-
-            val clientId = "abca_test"
-            val (attestation, pop) = generateAttestationAndPop(clientId)
-
-            whenever(httpHeaders.getHeaderString(Spec.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
-            whenever(httpHeaders.getHeaderString(Spec.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
-
-            val client: ClientModel = mock()
-            whenever(client.isEnabled).thenReturn(true)
-            whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
-
-            authenticator.authenticateClient(context)
-
-            verify(context, never()).success()
-            verify(context).failure(any(), anyOrNull())
-        }
-    }
-
-    @Nested
     inner class ExpirationValidation {
         @Test
         fun `fails when client attestation is expired`() {
@@ -399,6 +381,7 @@ class AttestationClientAuthenticatorTest {
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
             whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+            whenever(context.client).thenReturn(client)
 
             authenticator.authenticateClient(context)
 
@@ -444,6 +427,7 @@ class AttestationClientAuthenticatorTest {
 
         val header = JWSHeader.Builder(JWSAlgorithm.ES256).apply {
             jwk(attesterKey.toPublicJWK())
+            x509CertChain(listOf(Base64.encode("dummy-cert".toByteArray())))
             type(JOSEObjectType(Spec.CLIENT_ATTESTATION_JWT_TYPE))
             keyID(attesterKey.keyID)
         }.build()

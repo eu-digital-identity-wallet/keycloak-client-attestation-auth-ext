@@ -1,5 +1,6 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
+import arrow.core.raise.result
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSObject
@@ -26,60 +27,75 @@ import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
-data class ClientAttestation private constructor(
-    val subject: String,
-    val jwk: JWK,
-    val status: Status?,
-) {
+@JvmInline
+value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
+    val subject: String
+        get() = jwt.jwtClaimsSet.subject
+
+    val jwk: JWK
+        get() = jwt.jwtClaimsSet.cnf().cnfJwk()
+
+    val status: Status?
+        get() = jwt.jwtClaimsSet.status()
+
     companion object {
-        operator fun invoke(jwt: String) = ClientAttestation(SignedJWT.parse(jwt))
+        operator fun invoke(jwt: String): Result<ClientAttestationJWT> =
+            result {
+                invoke(SignedJWT.parse(jwt)).getOrThrow()
+            }
 
-        operator fun invoke(jwt: SignedJWT) = with(jwt) {
-            requireIsSignedOrVerified()
-            requireType(Spec.CLIENT_ATTESTATION_JWT_TYPE)
-            requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf"))
-            verifySignature()
-
-            val subject = jwt.jwtClaimsSet.subject
-            val jwk = requireValidConfirmationJwk()
-            val status = jwtClaimsSet.status()
-
-            ClientAttestation(subject, jwk, status)
-        }
+        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationJWT> =
+            result {
+                with(jwt) {
+                    requireIsSignedOrVerified()
+                    requireType(Spec.CLIENT_ATTESTATION_JWT_TYPE)
+                    requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf"))
+                    verifySignature()
+                    requireValidConfirmationJwk()
+                }
+                ClientAttestationJWT(jwt)
+            }
     }
 }
 
-data class ClientAttestationPop private constructor(
-    val issuer: String,
-    val audiences: List<String>,
-    val challenge: Challenge?,
-    internal val jwt: SignedJWT,
-) {
+@JvmInline
+value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
+    val issuer: String
+        get() = jwt.jwtClaimsSet.issuer
+
+    val audience: List<String>
+        get() = jwt.jwtClaimsSet.audience ?: emptyList()
+
+    val challenge: Challenge?
+        get() = jwt.jwtClaimsSet.getStringClaim(Spec.CHALLENGE_CLAIM)?.let { Challenge(it) }
+
     companion object {
-        operator fun invoke(jwt: String) = ClientAttestationPop(SignedJWT.parse(jwt))
+        operator fun invoke(jwt: String): Result<ClientAttestationPoPJWT> =
+            result {
+                invoke(SignedJWT.parse(jwt)).getOrThrow()
+            }
 
-        operator fun invoke(jwt: SignedJWT) = with(jwt) {
-            requireIsSignedOrVerified()
-            requireNotMACSigned()
-            requireType(Spec.CLIENT_ATTESTATION_POP_JWT_TYPE)
-            requireMandatoryClaims(setOf("iss", "aud", "jti", "iat"))
+        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationPoPJWT> =
+            result {
+                with(jwt) {
+                    requireIsSignedOrVerified()
+                    requireNotMACSigned()
+                    requireType(Spec.CLIENT_ATTESTATION_POP_JWT_TYPE)
+                    requireMandatoryClaims(setOf("iss", "aud", "jti", "iat"))
+                }
 
-            val issuer: String = jwt.jwtClaimsSet.issuer
-            val audiences = jwt.jwtClaimsSet.audience ?: emptyList()
-            val challenge: Challenge? = jwt.jwtClaimsSet.getStringClaim(Spec.CHALLENGE_CLAIM)?.let { Challenge(it) }
-
-            ClientAttestationPop(issuer, audiences, challenge, jwt)
-        }
+                ClientAttestationPoPJWT(jwt)
+            }
     }
 
-    fun verifyPop(clientAttestation: ClientAttestation) {
+    fun verifyPop(clientAttestationJWT: ClientAttestationJWT) {
         fun JWK.verifier(): JWSVerifier = when (this) {
             is RSAKey -> RSASSAVerifier(this)
             is ECKey -> ECDSAVerifier(this)
             else -> error("Unsupported key type: ${this.algorithm}")
         }
 
-        val verified = this.jwt.verify(clientAttestation.jwk.verifier())
+        val verified = this.jwt.verify(clientAttestationJWT.jwk.verifier())
         require(verified) { "Invalid signature" }
     }
 }

@@ -5,7 +5,7 @@ import org.keycloak.models.KeycloakSession
 import org.keycloak.models.KeycloakSessionFactory
 import org.keycloak.wellknown.WellKnownProvider
 import org.keycloak.wellknown.WellKnownProviderFactory
-import java.util.ServiceLoader
+import java.util.*
 
 /**
  * Augments the OAuth 2.0 Authorization Server Metadata

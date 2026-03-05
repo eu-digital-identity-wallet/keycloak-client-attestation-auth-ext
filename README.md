@@ -73,8 +73,7 @@ Client Authenticator
   - OAuth-Client-Attestation-PoP: a PoP JWT signed by the cnf.jwk key
 - Processing flow (high level):
   - Parses Client Attestation JWT; extracts sub (client_id) and cnf.jwk.
-  - Loads trusted certificates via LotlTrustStore (LOTL refresh task keeps it updated).
-  - TODO: Verify the Client Attestation JWT signature against the trusted certificates (placeholder exists in code).
+  - Verify the Client Attestation JWT signature against the trusted certificates if service has been configured with env variable.
   - Verifies the PoP JWT signature with the public key from cnf.jwk (currently EC algorithms configured; EdDSA support is a TODO).
   - Emits Keycloak events and returns OAuth error invalid_client_attestation on failures.
 
@@ -108,7 +107,7 @@ Project Structure
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\Spec.kt — Shared constants (e.g., header names, error codes).
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\challenge\* — Challenge endpoint and provider factory.
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\auth\* — Client authenticator and factory.
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\trust\* — LOTL fetch/refresh and trust store logic.
+- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\trust\* — Trusted Instance Attestation.
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\wellknown\* — Well‑known augmentation provider and factory.
 - src\main\resources\META-INF\services\* — Service provider registrations.
 - src\main\resources\META-INF\microprofile-config.properties — Enables realm REST extension SPI; optional ABCA config placeholders.

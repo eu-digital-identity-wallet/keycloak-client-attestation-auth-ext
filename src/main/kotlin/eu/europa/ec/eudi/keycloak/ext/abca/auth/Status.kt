@@ -4,8 +4,7 @@ import eu.europa.ec.eudi.statium.GetStatus
 import eu.europa.ec.eudi.statium.GetStatusListToken
 import eu.europa.ec.eudi.statium.StatusIndex
 import eu.europa.ec.eudi.statium.StatusReference
-import io.ktor.client.HttpClient
-import kotlinx.coroutines.runBlocking
+import io.ktor.client.*
 import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -22,10 +21,10 @@ data class Status(
     @SerialName("status_list") val statusList: StatusList,
 ) {
 
-    internal fun verifyStatus(): eu.europa.ec.eudi.statium.Status {
+    internal suspend fun verifyStatus(httpClient: HttpClient): eu.europa.ec.eudi.statium.Status {
         val getStatusListToken = GetStatusListToken.usingJwt(
             clock = Clock.System,
-            httpClient = HttpClient(),
+            httpClient = httpClient,
             verifyStatusListTokenSignature = { _, _ ->
                 Result.success(Unit) // TODO
             },
@@ -35,10 +34,8 @@ data class Status(
             index = StatusIndex(this.statusList.index),
             uri = this.statusList.uri,
         )
-        return runBlocking {
-            with(getStatus) {
-                statusReference.status(at = null).getOrThrow()
-            }
+        return with(getStatus) {
+            statusReference.status(at = null).getOrThrow()
         }
     }
 }
