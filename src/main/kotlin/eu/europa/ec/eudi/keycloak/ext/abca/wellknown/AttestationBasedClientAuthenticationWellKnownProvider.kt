@@ -17,7 +17,7 @@ package eu.europa.ec.eudi.keycloak.ext.abca.wellknown
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.nimbusds.jose.JWSAlgorithm
-import eu.europa.ec.eudi.keycloak.ext.abca.Spec
+import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import jakarta.ws.rs.core.UriInfo
 import org.keycloak.models.KeycloakContext
 import org.keycloak.models.KeycloakSession
@@ -40,15 +40,15 @@ class AttestationBasedClientAuthenticationWellKnownProvider(
         )
         val issuer = map["issuer"] as? String
         if (!issuer.isNullOrBlank()) {
-            map[Spec.CHALLENGE_ENDPOINT] = challengeEndpoint(session.context)
+            map[AttestationBasedClientAuthentication.CHALLENGE_ENDPOINT] = challengeEndpoint(session.context)
         }
         // Ensure the new client authentication method is advertised
-        addSupportedAuthMethod(map, "token_endpoint_auth_methods_supported", Spec.AUTHENTICATION_METHOD)
+        addSupportedAuthMethod(map, "token_endpoint_auth_methods_supported", AttestationBasedClientAuthentication.AUTHENTICATION_METHOD)
 
         // Advertise supported signing algorithms for attestation and PoP JWTs per draft spec
         addSigningAlgValuesSupported(
             map,
-            Spec.CLIENT_ATTESTATION_SIGNING_ALG_VALUES_SUPPORTED,
+            AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SIGNING_ALG_VALUES_SUPPORTED,
             listOf(
                 JWSAlgorithm.ES256.name,
                 JWSAlgorithm.ES384.name,
@@ -57,7 +57,7 @@ class AttestationBasedClientAuthenticationWellKnownProvider(
         )
         addSigningAlgValuesSupported(
             map,
-            Spec.CLIENT_ATTESTATION_POP_SIGNING_ALG_VALUES_SUPPORTED,
+            AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SIGNING_ALG_VALUES_SUPPORTED,
             listOf(
                 JWSAlgorithm.ES256.name,
                 JWSAlgorithm.ES384.name,
@@ -92,27 +92,20 @@ private fun concatPathLocal(base: String, segment: String): String =
     if (base.endsWith("/")) "$base$segment" else "$base/$segment"
 
 private fun addSupportedAuthMethod(map: MutableMap<String, Any?>, key: String, method: String) {
-    val current = map[key]
-    val updated: MutableSet<String> = when (current) {
-        is Collection<*> -> current.filterIsInstance<String>().toMutableSet()
-        is Array<*> -> current.filterIsInstance<String>().toMutableSet()
-        is String -> mutableSetOf(current)
-        else -> mutableSetOf()
-    }
-    if (!updated.contains(method)) {
-        updated.add(method)
-    }
-    map[key] = updated.toList()
+    val supportedMethods = map[key]?.toMutableStringSet() ?: mutableSetOf()
+    supportedMethods.add(method)
+    map[key] = supportedMethods.toList()
 }
 
 private fun addSigningAlgValuesSupported(map: MutableMap<String, Any?>, key: String, values: List<String>) {
-    val current = map[key]
-    val updated: MutableSet<String> = when (current) {
-        is Collection<*> -> current.filterIsInstance<String>().toMutableSet()
-        is Array<*> -> current.filterIsInstance<String>().toMutableSet()
-        is String -> mutableSetOf(current)
-        else -> mutableSetOf()
-    }
-    updated.addAll(values)
-    map[key] = updated.toList()
+    val supportedAlgorithms = map[key]?.toMutableStringSet() ?: mutableSetOf()
+    supportedAlgorithms.addAll(values)
+    map[key] = supportedAlgorithms.toList()
+}
+
+private fun Any.toMutableStringSet(): MutableSet<String> = when (this) {
+    is Collection<*> -> filterIsInstance<String>().toMutableSet()
+    is Array<*> -> filterIsInstance<String>().toMutableSet()
+    is String -> mutableSetOf(this)
+    else -> mutableSetOf()
 }
