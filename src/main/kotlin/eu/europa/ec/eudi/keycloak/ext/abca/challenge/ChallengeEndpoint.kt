@@ -15,7 +15,7 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.challenge
 
-import eu.europa.ec.eudi.keycloak.ext.abca.Spec
+import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.CacheControl
@@ -29,7 +29,7 @@ class ChallengeEndpoint(private val session: KeycloakSession) {
     @Produces(MediaType.APPLICATION_JSON)
     fun getChallenge(): Response {
         val entity = mapOf(
-            Spec.ATTESTATION_CHALLENGE to Challenge(session).value,
+            AttestationBasedClientAuthentication.ATTESTATION_CHALLENGE to Challenge(session).value,
         )
 
         // Ensure the response is never cached by intermediaries or clients

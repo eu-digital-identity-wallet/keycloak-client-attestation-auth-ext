@@ -19,7 +19,7 @@ import arrow.autoCloseScope
 import arrow.core.raise.*
 import arrow.core.toNonEmptyListOrNull
 import com.nimbusds.jose.util.X509CertUtils
-import eu.europa.ec.eudi.keycloak.ext.abca.Spec
+import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.Ignored
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.TrustResult
@@ -87,7 +87,7 @@ class AttestationBasedClientAuthenticatorFactory : AbstractClientAuthenticator()
 
     override fun getProtocolAuthenticatorMethods(loginProtocol: String): Set<String> =
         when (loginProtocol) {
-            OIDCLoginProtocol.LOGIN_PROTOCOL -> setOf(Spec.AUTHENTICATION_METHOD)
+            OIDCLoginProtocol.LOGIN_PROTOCOL -> setOf(AttestationBasedClientAuthentication.AUTHENTICATION_METHOD)
             else -> emptySet()
         }
 
@@ -144,7 +144,7 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext) {
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationJWT {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[Spec.HEADER_CLIENT_ATTESTATION]) {
+    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION]) {
         ClientAuthenticationFailure.missingClientAttestationJWT()
     }
     return ensureNotNull(ClientAttestationJWT(header).getOrNull()) {
@@ -153,7 +153,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationPoPJWT {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[Spec.HEADER_CLIENT_ATTESTATION_POP]) {
+    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP]) {
         ClientAuthenticationFailure.missingClientAttestationPoPJWT()
     }
     return ensureNotNull(ClientAttestationPoPJWT(header).getOrNull()) {
@@ -268,7 +268,7 @@ private data class ClientAuthenticationFailure(
         fun missingClientAttestationJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Missing Client Attestation JWT",
             "missing_client_attestation_jwt",
         )
@@ -276,7 +276,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation JWT is not valid",
             "client_attestation_jwt_not_valid",
         )
@@ -284,7 +284,7 @@ private data class ClientAuthenticationFailure(
         fun missingClientAttestationPoPJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Missing Client Attestation PoP JWT",
             "missing_client_attestation_pop_jwt",
         )
@@ -292,7 +292,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationPoPJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT is not valid",
             "client_attestation_pop_jwt_not_valid",
         )
@@ -300,7 +300,7 @@ private data class ClientAuthenticationFailure(
         fun clientIdMismatch() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Request client_id does not match Client Attestation JWT subject",
             "client_id_mismatch",
         )
@@ -308,7 +308,7 @@ private data class ClientAuthenticationFailure(
         fun clientNotFound() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client not found",
             "client_not_found",
         )
@@ -316,7 +316,7 @@ private data class ClientAuthenticationFailure(
         fun clientDisabled() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client is disabled",
             "client_disabled",
         )
@@ -324,7 +324,7 @@ private data class ClientAuthenticationFailure(
         fun clientAttestationJWTMissingX5C() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation JWT is missing 'x5c'",
             "client_attestation_jwt_missing_x5c",
         )
@@ -332,7 +332,7 @@ private data class ClientAuthenticationFailure(
         fun clientAttestationJWTIssuerNotTrusted() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation JWT Issuer is not trusted",
             "client_attestation_jwt_issuer_not_trusted",
         )
@@ -340,7 +340,7 @@ private data class ClientAuthenticationFailure(
         fun clientAttestationJWTStatusNotValid() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation JWT Status is not Valid",
             "client_attestation_jwt_status_not_valid",
         )
@@ -348,7 +348,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationPoPJWTSignature() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT signature is not valid",
             "client_attestation_pop_jwt_signature_not_valid",
         )
@@ -356,7 +356,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationPoPJWTAudience() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT audience is not valid",
             "client_attestation_pop_jwt_audience_not_valid",
         )
@@ -364,7 +364,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationPoPJWTIssuer() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT Issuer is not valid",
             "client_attestation_pop_jwt_issuer_not_valid",
         )
@@ -372,7 +372,7 @@ private data class ClientAuthenticationFailure(
         fun missingClientAttestationPoPJWTChallenge() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT is missing Challenge",
             "client_attestation_pop_jwt_missing_challenge",
         )
@@ -380,7 +380,7 @@ private data class ClientAuthenticationFailure(
         fun invalidClientAttestationPoPJWTChallenge() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            Spec.INVALID_CLIENT_ATTESTATION_ERROR,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT Challenge is not valid",
             "client_attestation_pop_jwt_challenge_not_valid",
         )

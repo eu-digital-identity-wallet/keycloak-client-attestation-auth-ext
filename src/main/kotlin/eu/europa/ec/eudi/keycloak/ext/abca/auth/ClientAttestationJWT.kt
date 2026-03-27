@@ -37,7 +37,8 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
-import eu.europa.ec.eudi.keycloak.ext.abca.Spec
+import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -53,6 +54,9 @@ value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
     val status: Status?
         get() = jwt.jwtClaimsSet.status()
 
+    val walletInfo: EudiWalletInfo
+        get() = jwt.jwtClaimsSet.walletInfo().getOrThrow()
+
     companion object {
         operator fun invoke(jwt: String): Result<ClientAttestationJWT> =
             result {
@@ -63,10 +67,11 @@ value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
             result {
                 with(jwt) {
                     requireIsSignedOrVerified()
-                    requireType(Spec.CLIENT_ATTESTATION_JWT_TYPE)
-                    requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf"))
+                    requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE)
+                    requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf", TS3.EUDI_WALLET_INFO_CLAIM))
                     verifySignature()
                     requireValidConfirmationJwk()
+                    requireValidWalletInfo()
                 }
                 ClientAttestationJWT(jwt)
             }
@@ -82,7 +87,7 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
         get() = jwt.jwtClaimsSet.audience ?: emptyList()
 
     val challenge: Challenge?
-        get() = jwt.jwtClaimsSet.getStringClaim(Spec.CHALLENGE_CLAIM)?.let { Challenge(it) }
+        get() = jwt.jwtClaimsSet.getStringClaim(AttestationBasedClientAuthentication.CHALLENGE_CLAIM)?.let { Challenge(it) }
 
     companion object {
         operator fun invoke(jwt: String): Result<ClientAttestationPoPJWT> =
@@ -95,7 +100,7 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
                 with(jwt) {
                     requireIsSignedOrVerified()
                     requireNotMACSigned()
-                    requireType(Spec.CLIENT_ATTESTATION_POP_JWT_TYPE)
+                    requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_JWT_TYPE)
                     requireMandatoryClaims(setOf("iss", "aud", "jti", "iat"))
                 }
 
@@ -127,7 +132,7 @@ private fun SignedJWT.verifySignature() {
     requireNotNull(jwk) { "Missing JWK or x5c in JWS header" }
 
     DefaultJWTProcessor<SecurityContext>().apply {
-        jwsTypeVerifier = DefaultJOSEObjectTypeVerifier(JOSEObjectType(Spec.CLIENT_ATTESTATION_JWT_TYPE))
+        jwsTypeVerifier = DefaultJOSEObjectTypeVerifier(JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE))
         jwsKeySelector = JWSVerificationKeySelector(
             header.algorithm,
             ImmutableJWKSet(JWKSet(jwk)),
@@ -169,29 +174,39 @@ private fun SignedJWT.requireType(expectedType: String) {
     require(typ == expectedType) { "Invalid JWT type" }
 }
 
+private fun SignedJWT.requireValidWalletInfo() {
+    jwtClaimsSet.walletInfo().getOrThrow()
+}
+
+private fun JWTClaimsSet.walletInfo(): Result<EudiWalletInfo> = runCatching {
+    val walletInfoClaim = JSONObjectUtils.toJSONString(requireNotNull(getJSONObjectClaim(TS3.EUDI_WALLET_INFO_CLAIM)))
+    json.decodeFromString<EudiWalletInfo>(walletInfoClaim)
+}
+
 private fun JWTClaimsSet.cnf(): JsonObject {
-    return requireNotNull(getJSONObjectClaim(Spec.CNF_CLAIM)).toJsonObject()
+    return requireNotNull(getJSONObjectClaim(AttestationBasedClientAuthentication.CNF_CLAIM)).toJsonObject()
 }
 
 private fun JsonObject.cnfJwk(): JWK {
-    return requireNotNull(this[Spec.CNF_JWK_CLAIM]).let {
-        val jsonString = Json.encodeToString(it)
+    return requireNotNull(this[AttestationBasedClientAuthentication.CNF_JWK_CLAIM]).let {
+        val jsonString = json.encodeToString(it)
         JWK.parse(jsonString)
     }
 }
 
 private fun JWTClaimsSet.status(): Status? {
-    return getJSONObjectClaim(Spec.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
+    return getJSONObjectClaim(AttestationBasedClientAuthentication.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
         runCatching {
-            val json = Json { ignoreUnknownKeys = true }
-            json.decodeFromString(Status.serializer(), Json.encodeToString(jsonObj))
+            json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
         }.getOrNull()
     }
 }
 
 private fun Map<String, Any?>.toJsonObject(): JsonObject {
     val jsonString = JSONObjectUtils.toJSONString(this)
-    return Json.decodeFromString(jsonString)
+    return json.decodeFromString(jsonString)
 }
 
 private fun JWSAlgorithm.isMACSigning(): Boolean = this in MACSigner.SUPPORTED_ALGORITHMS
+
+private val json = Json { ignoreUnknownKeys = true }

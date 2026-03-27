@@ -15,7 +15,7 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca
 
-object Spec {
+object AttestationBasedClientAuthentication {
     const val AUTHENTICATION_METHOD = "attest_jwt_client_auth"
     const val CLIENT_ATTESTATION_JWT_TYPE = "oauth-client-attestation+jwt"
     const val CLIENT_ATTESTATION_POP_JWT_TYPE = "oauth-client-attestation-pop+jwt"
@@ -42,4 +42,13 @@ object Spec {
     const val USE_ATTESTATION_CHALLENGE_ERROR = "use_attestation_challenge"
     const val USE_FRESH_ATTESTATION_ERROR = "use_fresh_attestation"
     const val INVALID_CLIENT_ATTESTATION_ERROR = "invalid_client_attestation"
+}
+
+object TS3 {
+    const val EUDI_WALLET_INFO_CLAIM = "eudi_wallet_info"
+    const val EUDI_WALLET_GENERAL_INFO_CLAIM = "general_info"
+    const val EUDI_WALLET_PROVIDER_NAME_CLAIM = "wallet_provider_name"
+    const val EUDI_WALLET_SOLUTION_ID_CLAIM = "wallet_solution_id"
+    const val EUDI_WALLET_SOLUTION_VERSION_CLAIM = "wallet_solution_version"
+    const val EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
 }
