@@ -16,8 +16,8 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.wellknown
 
 import com.fasterxml.jackson.core.type.TypeReference
-import com.nimbusds.jose.JWSAlgorithm
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import jakarta.ws.rs.core.UriInfo
 import org.keycloak.models.KeycloakContext
 import org.keycloak.models.KeycloakSession
@@ -49,20 +49,12 @@ class AttestationBasedClientAuthenticationWellKnownProvider(
         addSigningAlgValuesSupported(
             map,
             AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SIGNING_ALG_VALUES_SUPPORTED,
-            listOf(
-                JWSAlgorithm.ES256.name,
-                JWSAlgorithm.ES384.name,
-                JWSAlgorithm.ES512.name,
-            ),
+            TS3.ALLOWED_ALGORITHMS.map { it.name },
         )
         addSigningAlgValuesSupported(
             map,
             AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SIGNING_ALG_VALUES_SUPPORTED,
-            listOf(
-                JWSAlgorithm.ES256.name,
-                JWSAlgorithm.ES384.name,
-                JWSAlgorithm.ES512.name,
-            ),
+            TS3.ALLOWED_ALGORITHMS.map { it.name },
         )
         return map
     }

@@ -15,6 +15,8 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca
 
+import com.nimbusds.jose.JWSAlgorithm
+
 object AttestationBasedClientAuthentication {
     const val AUTHENTICATION_METHOD = "attest_jwt_client_auth"
     const val CLIENT_ATTESTATION_JWT_TYPE = "oauth-client-attestation+jwt"
@@ -51,4 +53,6 @@ object TS3 {
     const val EUDI_WALLET_SOLUTION_ID_CLAIM = "wallet_solution_id"
     const val EUDI_WALLET_SOLUTION_VERSION_CLAIM = "wallet_solution_version"
     const val EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
+
+    val ALLOWED_ALGORITHMS = setOf(JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512)
 }

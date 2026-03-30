@@ -19,10 +19,12 @@ import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.ECDSASigner
+import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.KeyUse
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64
 import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.JWTClaimsSet
@@ -406,6 +408,26 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         }
     }
 
+    @Test
+    fun `fails when attestation uses unsupported signing algorithm`() {
+        val clientId = "abca_test"
+        val attestationJwt = attestationJwtWithUnsupportedAlg(subject = clientId)
+        val pop = popJwt(clientId, holderKey)
+
+        whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestationJwt.serialize())
+        whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop.serialize())
+
+        val client: ClientModel = mock()
+        whenever(client.isEnabled).thenReturn(true)
+        whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+        whenever(context.client).thenReturn(client)
+
+        authenticator.authenticateClient(context)
+
+        verify(context, never()).success()
+        verify(context).failure(any(), anyOrNull())
+    }
+
     private fun generateAttestationAndPop(
         clientId: String = "abca_test",
         cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
@@ -461,6 +483,50 @@ class AttestationBasedClientAuthenticatorFactoryTest {
 
         return SignedJWT(header, claims)
             .also { it.sign(ECDSASigner(attesterKey)) }
+    }
+    internal fun attestationJwtWithUnsupportedAlg(
+        subject: String?,
+        cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
+        clock: Clock = Clock.System,
+    ): SignedJWT {
+        val nowMillis = clock.now().toEpochMilliseconds()
+
+        val attesterKey = RSAKeyGenerator(2048)
+            .keyUse(KeyUse.SIGNATURE)
+            .algorithm(JWSAlgorithm.RS256)
+            .keyID(UUID.randomUUID().toString())
+            .generate()
+
+        val claims = JWTClaimsSet.Builder().apply {
+            issuer("http://localhost:8080")
+            subject?.let { subject(subject) }
+            notBeforeTime(Date(nowMillis - 60.days.inWholeMilliseconds))
+            expirationTime(Date(nowMillis + 60.days.inWholeMilliseconds))
+            cnfJwk?.let {
+                claim(AttestationBasedClientAuthentication.CNF_CLAIM, mapOf(AttestationBasedClientAuthentication.CNF_JWK_CLAIM to cnfJwk))
+            }
+            claim(
+                TS3.EUDI_WALLET_INFO_CLAIM,
+                mapOf(
+                    TS3.EUDI_WALLET_GENERAL_INFO_CLAIM to mapOf(
+                        TS3.EUDI_WALLET_PROVIDER_NAME_CLAIM to "Provider Name",
+                        TS3.EUDI_WALLET_SOLUTION_ID_CLAIM to "Solution Id",
+                        TS3.EUDI_WALLET_SOLUTION_VERSION_CLAIM to "1.0",
+                        TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM to "Information",
+                    ),
+                ),
+            )
+        }.build()
+
+        val header = JWSHeader.Builder(JWSAlgorithm.RS256).apply {
+            jwk(attesterKey.toPublicJWK())
+            x509CertChain(listOf(Base64.encode("dummy-cert".toByteArray())))
+            type(JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE))
+            keyID(attesterKey.keyID)
+        }.build()
+
+        return SignedJWT(header, claims)
+            .also { it.sign(RSASSASigner(attesterKey)) }
     }
 
     internal fun popJwt(
