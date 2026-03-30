@@ -18,6 +18,7 @@ package eu.europa.ec.eudi.keycloak.ext.abca.auth
 import arrow.core.raise.result
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
+import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.JWSObject
 import com.nimbusds.jose.JWSVerifier
 import com.nimbusds.jose.crypto.ECDSAVerifier
@@ -121,14 +122,9 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
 }
 
 private fun SignedJWT.verifySignature() {
-    val header = header
+    header.requireAllowedSigningAlgorithm()
 
-    // Try JWK directly from header, otherwise derive from first x5c certificate
-    val headerJwk: JWK? = header.jwk
-    val jwk: JWK? = headerJwk ?: header.x509CertChain?.firstOrNull()?.let { b64 ->
-        X509CertUtils.parse(b64.decode())?.let { JWK.parse(it) }
-    }
-
+    val jwk = header.extractJwk()
     requireNotNull(jwk) { "Missing JWK or x5c in JWS header" }
 
     DefaultJWTProcessor<SecurityContext>().apply {
@@ -199,6 +195,20 @@ private fun JWTClaimsSet.status(): Status? {
         runCatching {
             json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
         }.getOrNull()
+    }
+}
+
+private fun JWSHeader.requireAllowedSigningAlgorithm() {
+    require(algorithm in TS3.ALLOWED_ALGORITHMS) {
+        "Signing algorithm not supported"
+    }
+}
+
+private fun JWSHeader.extractJwk(): JWK? {
+    val headerJwk: JWK? = jwk
+    // Try JWK directly from header, otherwise derive from first x5c certificate
+    return headerJwk ?: x509CertChain?.firstOrNull()?.let { b64 ->
+        X509CertUtils.parse(b64.decode())?.let { JWK.parse(it) }
     }
 }
 
