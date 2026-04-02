@@ -57,6 +57,9 @@ dependencies {
     testImplementation(libs.jersey.common)
 
     implementation(libs.nimbus.jose.jwt)
+    implementation(libs.bouncycastle.bkpkix)
+    testImplementation(libs.nimbus.oauth2)
+
     implementation(libs.statium)
 }
 

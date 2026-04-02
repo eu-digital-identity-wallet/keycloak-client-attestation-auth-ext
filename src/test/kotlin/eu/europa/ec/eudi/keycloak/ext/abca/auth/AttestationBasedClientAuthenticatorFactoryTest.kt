@@ -26,14 +26,14 @@ import com.nimbusds.jose.jwk.KeyUse
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64
-import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import com.nimbusds.oauth2.sdk.id.Issuer
+import com.nimbusds.oauth2.sdk.util.X509CertificateUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import jakarta.ws.rs.core.HttpHeaders
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -43,14 +43,14 @@ import org.keycloak.http.HttpRequest
 import org.keycloak.models.*
 import org.keycloak.protocol.oid4vc.issuance.keybinding.CNonceHandler
 import org.mockito.Mockito.mock
-import org.mockito.Mockito.mockStatic
 import org.mockito.kotlin.*
 import java.net.URI
-import java.security.cert.X509Certificate
 import java.util.*
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+import kotlin.time.toJavaInstant
 
 class AttestationBasedClientAuthenticatorFactoryTest {
 
@@ -66,7 +66,6 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     private lateinit var cNonceHandler: CNonceHandler
 
     private lateinit var authenticator: AttestationBasedClientAuthenticatorFactory
-    private lateinit var x509CertUtilsMock: org.mockito.MockedStatic<X509CertUtils>
 
     private lateinit var holderKey: ECKey
 
@@ -98,11 +97,6 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         whenever(kcContext.realm).thenReturn(realm)
         whenever(realm.name).thenReturn("master")
 
-        x509CertUtilsMock = mockStatic(X509CertUtils::class.java)
-        x509CertUtilsMock.`when`<X509Certificate> {
-            X509CertUtils.parse(org.mockito.ArgumentMatchers.any(ByteArray::class.java))
-        }.thenReturn(mock())
-
         // Provide CNonceHandler for challenge verification
         whenever(session.getProvider(CNonceHandler::class.java)).thenReturn(cNonceHandler)
         // Let verifyCNonce accept any inputs (no-op)
@@ -124,11 +118,6 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             .algorithm(JWSAlgorithm.ES256)
             .keyID(UUID.randomUUID().toString())
             .generate()
-    }
-
-    @AfterEach
-    fun tearDown() {
-        x509CertUtilsMock.close()
     }
 
     @Nested
@@ -443,19 +432,28 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
         clock: Clock = Clock.System,
     ): SignedJWT {
-        val nowMillis = clock.now().toEpochMilliseconds()
+        fun Instant.toJavaDate(): Date = Date.from(toJavaInstant())
+
+        val now = clock.now()
+        val nowMillis = now.toEpochMilliseconds()
 
         val attesterKey = ECKeyGenerator(Curve.P_256)
-            .keyUse(KeyUse.SIGNATURE)
             .algorithm(JWSAlgorithm.ES256)
+            .keyUse(KeyUse.SIGNATURE)
             .keyID(UUID.randomUUID().toString())
             .generate()
 
+        val attesterCertificate = X509CertificateUtils.generateSelfSigned(
+            Issuer("http://localhost:8080"),
+            now.toJavaDate(),
+            (now + 365.days).toJavaDate(),
+            attesterKey.toECPublicKey(),
+            attesterKey.toECPrivateKey(),
+        )
+
         val claims = JWTClaimsSet.Builder().apply {
             issuer("http://localhost:8080")
-            subject?.let {
-                subject(subject)
-            }
+            subject?.let { subject(it) }
             notBeforeTime(Date(nowMillis - 60.days.inWholeMilliseconds))
             expirationTime(Date(nowMillis + 60.days.inWholeMilliseconds))
             cnfJwk?.let {
@@ -475,10 +473,8 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         }.build()
 
         val header = JWSHeader.Builder(JWSAlgorithm.ES256).apply {
-            jwk(attesterKey.toPublicJWK())
-            x509CertChain(listOf(Base64.encode("dummy-cert".toByteArray())))
+            x509CertChain(listOf(Base64.encode(attesterCertificate.encoded)))
             type(JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE))
-            keyID(attesterKey.keyID)
         }.build()
 
         return SignedJWT(header, claims)

@@ -204,12 +204,12 @@ private fun JWSHeader.requireAllowedSigningAlgorithm() {
     }
 }
 
-private fun JWSHeader.extractJwk(): JWK? {
-    val headerJwk: JWK? = jwk
-    // Try JWK directly from header, otherwise derive from first x5c certificate
-    return headerJwk ?: x509CertChain?.firstOrNull()?.let { b64 ->
-        X509CertUtils.parse(b64.decode())?.let { JWK.parse(it) }
-    }
+private fun JWSHeader.extractJwk(): JWK {
+    requireNotNull(x509CertChain) { "Missing x5c" }
+    require(x509CertChain.isNotEmpty()) { "x5c must not be empty" }
+
+    val x509 = X509CertUtils.parse(x509CertChain.first().decode())
+    return JWK.parse(x509)
 }
 
 private fun Map<String, Any?>.toJsonObject(): JsonObject {
