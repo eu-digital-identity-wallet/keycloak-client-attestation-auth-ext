@@ -16,11 +16,8 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
 import arrow.core.raise.result
-import com.nimbusds.jose.JOSEObjectType
-import com.nimbusds.jose.JWSAlgorithm
-import com.nimbusds.jose.JWSHeader
-import com.nimbusds.jose.JWSObject
-import com.nimbusds.jose.JWSVerifier
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.nimbusds.jose.*
 import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.crypto.MACSigner
 import com.nimbusds.jose.crypto.RSASSAVerifier
@@ -39,10 +36,41 @@ import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
+import eu.europa.ec.eudi.keycloak.ext.abca.RFC7519
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
+import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
+import kotlinx.serialization.Required
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.net.URI
+
+@Serializable
+data class ClientStatus(
+    @Required
+    @SerialName(TokenStatusList.STATUS_CLAIM)
+    val status: Status,
+    @Required
+    @SerialName(RFC7519.EXP_CLAIM)
+    val exp: Long,
+)
+
+@JvmInline
+@Serializable
+value class WalletSolutionCertificationInformation(val certificationInformation: JsonElement) {
+    init {
+        require(
+            (certificationInformation is JsonObject) ||
+                ((certificationInformation is JsonPrimitive) && certificationInformation.isString),
+
+        ) { "wallet solution certification information claim must be of type Json Object or String" }
+    }
+}
 
 @JvmInline
 value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
@@ -55,8 +83,20 @@ value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
     val status: Status?
         get() = jwt.jwtClaimsSet.status()
 
-    val walletInfo: EudiWalletInfo
-        get() = jwt.jwtClaimsSet.walletInfo().getOrThrow()
+    val walletName: String
+        get() = jwt.jwtClaimsSet.walletName().getOrThrow()
+
+    val walletVersion: String
+        get() = jwt.jwtClaimsSet.walletVersion().getOrThrow()
+
+    val walletSolutionCertificationInformation: WalletSolutionCertificationInformation
+        get() = jwt.jwtClaimsSet.walletSolutionCertificationInformation().getOrThrow()
+
+    val walletLink: URI?
+        get() = jwt.jwtClaimsSet.walletLink().getOrThrow()
+
+    val clientStatus: ClientStatus
+        get() = jwt.jwtClaimsSet.clientStatus().getOrThrow()
 
     companion object {
         operator fun invoke(jwt: String): Result<ClientAttestationJWT> =
@@ -69,10 +109,23 @@ value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
                 with(jwt) {
                     requireIsSignedOrVerified()
                     requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE)
-                    requireMandatoryClaims(setOf("iss", "sub", "exp", "cnf", TS3.EUDI_WALLET_INFO_CLAIM))
+                    requireMandatoryClaims(
+                        "iss",
+                        "sub",
+                        "exp",
+                        "cnf",
+                        OpenId4VCI.WALLET_NAME_CLAIM,
+                        TS3.EUDI_WALLET_VERSION_CLAIM,
+                        TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
+                        TS3.EUDI_CLIENT_STATUS_CLAIM,
+                    )
                     verifySignature()
                     requireValidConfirmationJwk()
-                    requireValidWalletInfo()
+                    requireWalletName()
+                    requireWalletVersion()
+                    requireWalletSolutionCertificationInformation()
+                    requireClientStatus()
+                    ensureWalletLinkType()
                 }
                 ClientAttestationJWT(jwt)
             }
@@ -102,7 +155,7 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
                     requireIsSignedOrVerified()
                     requireNotMACSigned()
                     requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_JWT_TYPE)
-                    requireMandatoryClaims(setOf("iss", "aud", "jti", "iat"))
+                    requireMandatoryClaims("iss", "aud", "jti", "iat")
                 }
 
                 ClientAttestationPoPJWT(jwt)
@@ -125,7 +178,6 @@ private fun SignedJWT.verifySignature() {
     header.requireAllowedSigningAlgorithm()
 
     val jwk = header.extractJwk()
-    requireNotNull(jwk) { "Missing JWK or x5c in JWS header" }
 
     DefaultJWTProcessor<SecurityContext>().apply {
         jwsTypeVerifier = DefaultJOSEObjectTypeVerifier(JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE))
@@ -138,10 +190,10 @@ private fun SignedJWT.verifySignature() {
     }
 }
 
-private fun SignedJWT.requireMandatoryClaims(claims: Set<String>) =
+private fun SignedJWT.requireMandatoryClaims(first: String, vararg remaining: String) =
     DefaultJWTClaimsVerifier<SecurityContext>(
         null,
-        claims,
+        setOf(first, *remaining),
     ).apply {
         maxClockSkew = 60
     }.verify(jwtClaimsSet, null)
@@ -170,13 +222,30 @@ private fun SignedJWT.requireType(expectedType: String) {
     require(typ == expectedType) { "Invalid JWT type" }
 }
 
-private fun SignedJWT.requireValidWalletInfo() {
-    jwtClaimsSet.walletInfo().getOrThrow()
+private fun SignedJWT.requireWalletName() {
+    jwtClaimsSet.walletName().getOrThrow()
 }
 
-private fun JWTClaimsSet.walletInfo(): Result<EudiWalletInfo> = runCatching {
-    val walletInfoClaim = JSONObjectUtils.toJSONString(requireNotNull(getJSONObjectClaim(TS3.EUDI_WALLET_INFO_CLAIM)))
-    json.decodeFromString<EudiWalletInfo>(walletInfoClaim)
+private fun SignedJWT.requireWalletVersion() {
+    jwtClaimsSet.walletVersion().getOrThrow()
+}
+
+private fun SignedJWT.requireWalletSolutionCertificationInformation() {
+    jwtClaimsSet.walletSolutionCertificationInformation().getOrThrow()
+}
+
+private fun SignedJWT.requireClientStatus() {
+    jwtClaimsSet.clientStatus().getOrThrow()
+}
+
+private fun SignedJWT.ensureWalletLinkType() {
+    if (null != jwtClaimsSet.getStringClaim(OpenId4VCI.WALLET_LINK_CLAIM)) {
+        jwtClaimsSet.walletLink().getOrThrow()
+    }
+}
+
+private fun JWTClaimsSet.walletName(): Result<String> = runCatching {
+    requireNotNull(getStringClaim(OpenId4VCI.WALLET_NAME_CLAIM))
 }
 
 private fun JWTClaimsSet.cnf(): JsonObject {
@@ -196,6 +265,28 @@ private fun JWTClaimsSet.status(): Status? {
             json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
         }.getOrNull()
     }
+}
+
+private fun JWTClaimsSet.clientStatus(): Result<ClientStatus> = runCatching {
+    val clientStatusClaim = JSONObjectUtils.toJSONString(requireNotNull(getJSONObjectClaim(TS3.EUDI_CLIENT_STATUS_CLAIM)))
+    json.decodeFromString<ClientStatus>(clientStatusClaim)
+}
+
+private fun JWTClaimsSet.walletLink(): Result<URI?> = runCatching {
+    val walletLinkClaim = getStringClaim(OpenId4VCI.WALLET_LINK_CLAIM)
+    walletLinkClaim?.let { URI.create(it) }
+}
+
+private fun JWTClaimsSet.walletSolutionCertificationInformation(): Result<WalletSolutionCertificationInformation> = runCatching {
+    val claim = getClaim(TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM)
+    val objectMapper = ObjectMapper()
+    val jsonElement = json.parseToJsonElement(objectMapper.writeValueAsString(claim))
+    WalletSolutionCertificationInformation(jsonElement)
+}
+
+private fun JWTClaimsSet.walletVersion(): Result<String> = runCatching {
+    val walletVersionClaim = requireNotNull(getStringClaim(TS3.EUDI_WALLET_VERSION_CLAIM))
+    walletVersionClaim
 }
 
 private fun JWSHeader.requireAllowedSigningAlgorithm() {

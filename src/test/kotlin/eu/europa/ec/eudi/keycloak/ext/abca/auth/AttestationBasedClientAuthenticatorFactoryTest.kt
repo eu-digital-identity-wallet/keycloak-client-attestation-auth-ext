@@ -31,8 +31,15 @@ import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.util.X509CertificateUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
+import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import jakarta.ws.rs.core.HttpHeaders
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -42,13 +49,13 @@ import org.keycloak.events.EventBuilder
 import org.keycloak.http.HttpRequest
 import org.keycloak.models.*
 import org.keycloak.protocol.oid4vc.issuance.keybinding.CNonceHandler
+import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
 import org.mockito.kotlin.*
 import java.net.URI
 import java.util.*
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
 
@@ -62,12 +69,17 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     private lateinit var keycloakUriInfo: KeycloakUriInfo
     private lateinit var realm: RealmModel
     private lateinit var eventBuilder: EventBuilder
-
     private lateinit var cNonceHandler: CNonceHandler
-
     private lateinit var authenticator: AttestationBasedClientAuthenticatorFactory
-
     private lateinit var holderKey: ECKey
+    private lateinit var mockHttpClient: HttpClient
+
+    private val statusListJwt = loadResource("statuslisttoken.jwt")
+    private val challengeJwt = loadResource("challenge.jwt")
+
+    private fun loadResource(resource: String): String = requireNotNull(
+        AttestationBasedClientAuthenticatorFactoryTest::class.java.classLoader.getResource(resource),
+    ).readText()
 
     @BeforeEach
     fun setUp() {
@@ -80,7 +92,9 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         keycloakUriInfo = mock()
         eventBuilder = mock()
         cNonceHandler = mock()
-        authenticator = AttestationBasedClientAuthenticatorFactory()
+
+        mockHttpClient = HttpClient(createMockEngine())
+        authenticator = AttestationBasedClientAuthenticatorFactory(mockHttpClient)
 
         whenever(context.httpRequest).thenReturn(httpRequest)
         whenever(httpRequest.httpHeaders).thenReturn(httpHeaders)
@@ -118,6 +132,15 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             .algorithm(JWSAlgorithm.ES256)
             .keyID(UUID.randomUUID().toString())
             .generate()
+    }
+
+    private fun createMockEngine(): MockEngine = MockEngine {
+        respond(
+            content = statusListJwt,
+            status = HttpStatusCode.OK,
+            headers = headersOf(io.ktor.http.HttpHeaders.ContentType, "application/jwt"),
+
+        )
     }
 
     @Nested
@@ -427,15 +450,14 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         return attestationJwt(clientId, cnfJwk, clock).serialize() to popJwt(clientId, popSigner, clock).serialize()
     }
 
+    private fun Instant.toJavaDate(): Date = Date.from(toJavaInstant())
+
     internal fun attestationJwt(
         subject: String?,
         cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
         clock: Clock = Clock.System,
     ): SignedJWT {
-        fun Instant.toJavaDate(): Date = Date.from(toJavaInstant())
-
         val now = clock.now()
-        val nowMillis = now.toEpochMilliseconds()
 
         val attesterKey = ECKeyGenerator(Curve.P_256)
             .algorithm(JWSAlgorithm.ES256)
@@ -454,22 +476,34 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         val claims = JWTClaimsSet.Builder().apply {
             issuer("http://localhost:8080")
             subject?.let { subject(it) }
-            notBeforeTime(Date(nowMillis - 60.days.inWholeMilliseconds))
-            expirationTime(Date(nowMillis + 60.days.inWholeMilliseconds))
+            notBeforeTime((now - 60.days).toJavaDate())
+            expirationTime((now + 60.days).toJavaDate())
             cnfJwk?.let {
                 claim(AttestationBasedClientAuthentication.CNF_CLAIM, mapOf(AttestationBasedClientAuthentication.CNF_JWK_CLAIM to cnfJwk))
             }
             claim(
-                TS3.EUDI_WALLET_INFO_CLAIM,
+                TS3.EUDI_CLIENT_STATUS_CLAIM,
                 mapOf(
-                    TS3.EUDI_WALLET_GENERAL_INFO_CLAIM to mapOf(
-                        TS3.EUDI_WALLET_PROVIDER_NAME_CLAIM to "Provider Name",
-                        TS3.EUDI_WALLET_SOLUTION_ID_CLAIM to "Solution Id",
-                        TS3.EUDI_WALLET_SOLUTION_VERSION_CLAIM to "1.0",
-                        TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM to "Information",
+                    TokenStatusList.STATUS_CLAIM to mapOf(
+                        TokenStatusList.STATUS_LIST_CLAIM to mapOf(
+                            TokenStatusList.STATUS_LIST_IDX_CLAIM to 1,
+                            TokenStatusList.STATUS_LIST_URI_CLAIM to "https://issuer.eudiw.dev/token_status_list/FC/key-attestation+jwt/3b83d6bd-64f7-4f71-b16f-bb7e66d38557",
+                        ),
                     ),
+                    "exp" to (now + 60.days).epochSeconds,
                 ),
             )
+            claim(OpenId4VCI.WALLET_NAME_CLAIM, "Wallet name")
+            claim(TS3.EUDI_WALLET_VERSION_CLAIM, "1.0")
+            claim(
+                TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
+                mapOf(
+                    "test" to "test",
+                    "example" to "example",
+                    "test2" to mapOf("test3" to "test3"),
+                ),
+            )
+            claim(OpenId4VCI.WALLET_LINK_CLAIM, "https://example")
         }.build()
 
         val header = JWSHeader.Builder(JWSAlgorithm.ES256).apply {
@@ -480,12 +514,13 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         return SignedJWT(header, claims)
             .also { it.sign(ECDSASigner(attesterKey)) }
     }
+
     internal fun attestationJwtWithUnsupportedAlg(
         subject: String?,
         cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
         clock: Clock = Clock.System,
     ): SignedJWT {
-        val nowMillis = clock.now().toEpochMilliseconds()
+        val now = clock.now()
 
         val attesterKey = RSAKeyGenerator(2048)
             .keyUse(KeyUse.SIGNATURE)
@@ -496,22 +531,27 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         val claims = JWTClaimsSet.Builder().apply {
             issuer("http://localhost:8080")
             subject?.let { subject(subject) }
-            notBeforeTime(Date(nowMillis - 60.days.inWholeMilliseconds))
-            expirationTime(Date(nowMillis + 60.days.inWholeMilliseconds))
+            notBeforeTime((now - 60.days).toJavaDate())
+            expirationTime((now + 60.days).toJavaDate())
             cnfJwk?.let {
                 claim(AttestationBasedClientAuthentication.CNF_CLAIM, mapOf(AttestationBasedClientAuthentication.CNF_JWK_CLAIM to cnfJwk))
             }
             claim(
-                TS3.EUDI_WALLET_INFO_CLAIM,
+                TS3.EUDI_CLIENT_STATUS_CLAIM,
                 mapOf(
-                    TS3.EUDI_WALLET_GENERAL_INFO_CLAIM to mapOf(
-                        TS3.EUDI_WALLET_PROVIDER_NAME_CLAIM to "Provider Name",
-                        TS3.EUDI_WALLET_SOLUTION_ID_CLAIM to "Solution Id",
-                        TS3.EUDI_WALLET_SOLUTION_VERSION_CLAIM to "1.0",
-                        TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM to "Information",
+                    TokenStatusList.STATUS_CLAIM to mapOf(
+                        TokenStatusList.STATUS_LIST_CLAIM to mapOf(
+                            TokenStatusList.STATUS_LIST_IDX_CLAIM to 1,
+                            TokenStatusList.STATUS_LIST_URI_CLAIM to "https://issuer.eudiw.dev/token_status_list/FC/key-attestation+jwt/3b83d6bd-64f7-4f71-b16f-bb7e66d38557",
+                        ),
                     ),
+                    "exp" to (now + 60.days).epochSeconds,
                 ),
             )
+            claim(OpenId4VCI.WALLET_NAME_CLAIM, "Wallet name")
+            claim(TS3.EUDI_WALLET_VERSION_CLAIM, "1.0")
+            claim(TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM, "example")
+            claim(OpenId4VCI.WALLET_LINK_CLAIM, "https://example")
         }.build()
 
         val header = JWSHeader.Builder(JWSAlgorithm.RS256).apply {
@@ -531,7 +571,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         clock: Clock = Clock.System,
         challenge: Challenge? = null,
     ): SignedJWT {
-        val nowMillis = clock.now().toEpochMilliseconds()
+        val now = clock.now()
 
         val header = JWSHeader.Builder(JWSAlgorithm.ES256)
             .type(JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_JWT_TYPE))
@@ -542,10 +582,13 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             .issuer(issuer)
             .audience("http://localhost:8080/realms/master")
             .jwtID(UUID.randomUUID().toString())
-            .issueTime(Date(nowMillis - 60.seconds.inWholeMilliseconds))
-            .notBeforeTime(Date(nowMillis - 60.seconds.inWholeMilliseconds))
-            .expirationTime(Date(nowMillis + 60.seconds.inWholeMilliseconds))
-            .claim(AttestationBasedClientAuthentication.CHALLENGE_CLAIM, challenge?.value ?: UUID.randomUUID().toString())
+            .issueTime((now - 60.days).toJavaDate())
+            .notBeforeTime((now - 60.days).toJavaDate())
+            .expirationTime((now + 60.days).toJavaDate())
+            .claim(
+                AttestationBasedClientAuthentication.CHALLENGE_CLAIM,
+                challenge?.value ?: UUID.randomUUID().toString(),
+            )
             .build()
 
         return SignedJWT(header, claims)
@@ -555,7 +598,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     @Test
     fun test() {
         attestationJwt("eudiw-abca").also { println(it.serialize()) }
-        val challenge = Challenge("eyJhbGciOiJFUzI1NiIsImtpZCIgOiAiOGZNbGQ1d01OX1duX2J2aGJ1aVRCSWRvWnk1SzR0aTdTLXRNVU16MzJoUSJ9.eyJleHAiOjE3NTkyMjQ0NjQsImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODA4MC9yZWFsbXMvbWFzdGVyIiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9tYXN0ZXIiLCJzYWx0IjoiRlJKTHovNEpXZ0k3TVVTQ0lpK0Zha0xxUFJFMjA5VW1oWGFzd2NWc0FySk93TGk0TzIyMkJsbFNlZDJkemNDTkFQWHI4OHJEMFhHRXdadTZ4VmxnIiwic291cmNlX2VuZHBvaW50IjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9tYXN0ZXIvY2hhbGxlbmdlIn0.csFKZDOlaxj0N3SZCT_KSoZesmT-0_luF9jVgEKJBSmzBN1r75szj5lSMeEHzKnsf8g86jtYtriAa_pqeuNFzg")
+        val challenge = Challenge(challengeJwt)
         popJwt("abca_test", holderKey, challenge = challenge).also { println(it.serialize()) }
     }
 }

@@ -15,6 +15,7 @@ the [EUDI Wallet Reference Implementation project description](https://github.co
 * [Setup and Build](#setup-and-build)
 * [Deploy to Keycloak](#deploy-to-keycloak)
 * [Entry points (SPIs)](#entry-points-spis)
+* [How to enable WalletStatusMapper](#how-to-enable-walletstatusmapper)
 * [Usage](#usage)
 * [Client Authenticator](#client-authenticator)
 * [Gradle Tasks / Scripts](#gradle-tasks--scripts)
@@ -49,6 +50,7 @@ This project provides three Keycloak extensions implementing parts of the OAuth 
 - Challenge endpoint implementation: RealmResourceProvider + RealmResourceProviderFactory (registered via META‑INF/services).
 - Client authenticator: Parses OAuth‑Client‑Attestation and OAuth‑Client‑Attestation‑PoP headers, loads trusted certificates from a LOTL‑based trust store, validates PoP JWT signature, and wires into Keycloak’s client auth flow.
 - Well‑known augmentation: Adds challenge_endpoint and supported algorithm lists to the OIDC discovery document.
+- Client Status wallet mapper: Maps client status to access token to be able to be accessed by the receiver.
 
 ## Stack / Tooling
 - Language: Kotlin (JVM)
@@ -83,6 +85,13 @@ This project provides three Keycloak extensions implementing parts of the OAuth 
 - Realm REST extension: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeEndpointProviderFactory
 - Well‑Known provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
 - Client authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationClientAuthenticatorFactory
+
+## How to enable WalletStatusMapper
+1.  Go to the desired client from the `Clients`
+2. In `Client scopes` chose the desired client scope ex: `eudiw-abca-dedicated`
+3. Choose `Add mapper` and select `By Configuration`
+4. Select `Client Status Mapper` and give it a name ex: `client-status-mapper`
+5. Click `Save`
 
 ## Usage
 - Well‑known discovery augmentation:

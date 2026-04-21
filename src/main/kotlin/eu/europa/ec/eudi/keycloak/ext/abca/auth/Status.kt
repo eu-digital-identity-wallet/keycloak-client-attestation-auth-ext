@@ -15,6 +15,7 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.auth
 
+import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
 import eu.europa.ec.eudi.statium.GetStatus
 import eu.europa.ec.eudi.statium.GetStatusListToken
 import eu.europa.ec.eudi.statium.StatusIndex
@@ -24,19 +25,20 @@ import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
+import eu.europa.ec.eudi.statium.Status as StatiumStatus
 
 @Serializable
 data class StatusList(
-    @SerialName("idx") @Required val index: Int,
-    @SerialName("uri") @Required val uri: String,
+    @SerialName(TokenStatusList.STATUS_LIST_IDX_CLAIM) @Required val index: Int,
+    @SerialName(TokenStatusList.STATUS_LIST_URI_CLAIM) @Required val uri: String,
 )
 
 @Serializable
 data class Status(
-    @SerialName("status_list") val statusList: StatusList,
+    @SerialName(TokenStatusList.STATUS_LIST_CLAIM) val statusList: StatusList,
 ) {
 
-    internal suspend fun verifyStatus(httpClient: HttpClient): eu.europa.ec.eudi.statium.Status {
+    internal suspend fun verifyStatus(httpClient: HttpClient): StatiumStatus {
         val getStatusListToken = GetStatusListToken.usingJwt(
             clock = Clock.System,
             httpClient = httpClient,
