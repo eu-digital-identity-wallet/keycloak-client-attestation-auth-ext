@@ -47,12 +47,25 @@ object AttestationBasedClientAuthentication {
 }
 
 object TS3 {
-    const val EUDI_WALLET_INFO_CLAIM = "eudi_wallet_info"
-    const val EUDI_WALLET_GENERAL_INFO_CLAIM = "general_info"
-    const val EUDI_WALLET_PROVIDER_NAME_CLAIM = "wallet_provider_name"
-    const val EUDI_WALLET_SOLUTION_ID_CLAIM = "wallet_solution_id"
-    const val EUDI_WALLET_SOLUTION_VERSION_CLAIM = "wallet_solution_version"
+    const val EUDI_WALLET_VERSION_CLAIM = "wallet_version"
     const val EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
+    const val EUDI_CLIENT_STATUS_CLAIM = "client_status"
 
     val ALLOWED_ALGORITHMS = setOf(JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512)
+}
+
+object RFC7519 {
+    const val EXP_CLAIM = "exp"
+}
+
+object OpenId4VCI {
+    const val WALLET_NAME_CLAIM = "wallet_name"
+    const val WALLET_LINK_CLAIM = "wallet_link"
+}
+
+object TokenStatusList {
+    const val STATUS_CLAIM = "status"
+    const val STATUS_LIST_CLAIM = "status_list"
+    const val STATUS_LIST_IDX_CLAIM = "idx"
+    const val STATUS_LIST_URI_CLAIM = "uri"
 }

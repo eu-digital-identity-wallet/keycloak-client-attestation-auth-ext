@@ -20,6 +20,7 @@ import arrow.core.raise.*
 import arrow.core.toNonEmptyListOrNull
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.Ignored
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.TrustResult
@@ -33,6 +34,7 @@ import io.ktor.serialization.kotlinx.json.*
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.keycloak.authentication.AuthenticationFlowError
 import org.keycloak.authentication.ClientAuthenticationFlowContext
 import org.keycloak.authentication.authenticators.client.AbstractClientAuthenticator
@@ -65,7 +67,10 @@ private const val Id = "abca-draft07"
 
 private val log = LoggerFactory.getLogger(AttestationBasedClientAuthenticatorFactory::class.java)
 
-class AttestationBasedClientAuthenticatorFactory : AbstractClientAuthenticator() {
+class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpClient) : AbstractClientAuthenticator() {
+
+    constructor() : this(createHttpClient())
+
     init {
         log.info("Initializing AttestationBasedClientAuthenticatorFactory...")
     }
@@ -93,7 +98,7 @@ class AttestationBasedClientAuthenticatorFactory : AbstractClientAuthenticator()
 
     override fun getRequirementChoices(): Array<AuthenticationExecutionModel.Requirement> = REQUIREMENT_CHOICES
 
-    override fun authenticateClient(context: ClientAuthenticationFlowContext) = doAuthenticate(context)
+    override fun authenticateClient(context: ClientAuthenticationFlowContext) = doAuthenticate(context, httpClient)
 }
 
 private class Config(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
@@ -112,35 +117,36 @@ private class Config(private val client: ClientModel, private val authenticator:
     }
 }
 
-private fun doAuthenticate(context: ClientAuthenticationFlowContext) {
-    autoCloseScope {
-        val httpClient by lazy { install(createHttpClient()) }
+private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient: HttpClient) {
+    either {
+        val clientAttestationJWT = ensureClientAttestationJWTPresent(context)
 
-        either {
-            val clientAttestationJWT = ensureClientAttestationJWTPresent(context)
-            val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
+        val clientStatus = clientAttestationJWT.clientStatus
+        ensureClientStatusIsValid(httpClient, clientStatus)
+        context.clientAuthAttributes[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.encodeToString(clientStatus)
 
-            // If the request form contains client_id, ensure it matches the client attestation jwt subject
-            val clientId = ensureClientIdMatch(context, clientAttestationJWT)
-            context.event.client(clientId)
+        val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
 
-            val client = ensureActiveClient(context, clientId)
-            context.client = client
+        // If the request form contains client_id, ensure it matches the client attestation jwt subject
+        val clientId = ensureClientIdMatch(context, clientAttestationJWT)
+        context.event.client(clientId)
 
-            ensureClientAttestationJWTIssuerTrusted(context, httpClient, clientAttestationJWT)
-            ensureClientAttestationJWTStatusActive(httpClient, clientAttestationJWT)
-            ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
-        }.fold(
-            ifLeft = {
-                log.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
-                context.failure(it)
-            },
-            ifRight = {
-                log.info("Successfully authenticated Client ${context.client.clientId} using Attestation Based Client Authentication")
-                context.success()
-            },
-        )
-    }
+        val client = ensureActiveClient(context, clientId)
+        context.client = client
+
+        ensureClientAttestationJWTIssuerTrusted(context, httpClient, clientAttestationJWT)
+        ensureClientAttestationJWTStatusActive(httpClient, clientAttestationJWT)
+        ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
+    }.fold(
+        ifLeft = {
+            log.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
+            context.failure(it)
+        },
+        ifRight = {
+            log.info("Successfully authenticated Client ${context.client.clientId} using Attestation Based Client Authentication")
+            context.success()
+        },
+    )
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationJWT {
@@ -227,6 +233,17 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTStatusA
         ensure(Status.Valid == status) {
             ClientAuthenticationFailure.clientAttestationJWTStatusNotValid()
         }
+    }
+}
+
+private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
+    httpClient: HttpClient,
+    clientStatus: ClientStatus,
+) {
+    val statusListReference = clientStatus.status
+    val status = runBlocking { statusListReference.verifyStatus(httpClient) }
+    ensure(Status.Valid == status) {
+        ClientAuthenticationFailure.clientAttestationJWTInvalidClientStatus()
     }
 }
 
@@ -335,6 +352,14 @@ private data class ClientAuthenticationFailure(
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation JWT Issuer is not trusted",
             "client_attestation_jwt_issuer_not_trusted",
+        )
+
+        fun clientAttestationJWTInvalidClientStatus() = ClientAuthenticationFailure(
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            Response.Status.UNAUTHORIZED,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Client Attestation JWT Client Status is invalid",
+            "client_attestation_jwt_client_status_invalid",
         )
 
         fun clientAttestationJWTStatusNotValid() = ClientAuthenticationFailure(
