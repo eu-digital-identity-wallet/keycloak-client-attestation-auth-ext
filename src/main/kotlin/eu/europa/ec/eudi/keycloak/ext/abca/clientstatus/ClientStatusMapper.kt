@@ -1,8 +1,7 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.clientstatus
 
+import com.nimbusds.jose.util.JSONObjectUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
-import kotlinx.serialization.json.Json
 import org.keycloak.models.ClientSessionContext
 import org.keycloak.models.KeycloakSession
 import org.keycloak.models.ProtocolMapperModel
@@ -30,7 +29,7 @@ class ClientStatusMapper : AbstractOIDCProtocolMapper(), OIDCAccessTokenMapper {
         val clientStatus = requireNotNull(clientSession.clientSession.userSession.notes[TS3.EUDI_CLIENT_STATUS_CLAIM]) {
             "client_status not found in user session"
         }
-        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.decodeFromString<ClientStatus>(clientStatus)
+        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = JSONObjectUtils.parse(clientStatus)
         return token
     }
 }

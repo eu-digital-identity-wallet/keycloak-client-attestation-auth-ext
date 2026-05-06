@@ -75,7 +75,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     private lateinit var mockHttpClient: HttpClient
 
     private val statusListJwt = loadResource("statuslisttoken.jwt")
-    private val challengeJwt = loadResource("challenge.jwt")
+    private val challengeJwt = loadResource("challenge.txt")
 
     private fun loadResource(resource: String): String = requireNotNull(
         AttestationBasedClientAuthenticatorFactoryTest::class.java.classLoader.getResource(resource),
