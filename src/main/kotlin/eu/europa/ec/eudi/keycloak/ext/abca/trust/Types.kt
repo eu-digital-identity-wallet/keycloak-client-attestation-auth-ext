@@ -15,13 +15,9 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
-import io.ktor.client.*
-import io.ktor.client.call.*
-import io.ktor.client.plugins.*
-import io.ktor.client.request.*
-import io.ktor.http.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Required
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -35,42 +31,31 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import kotlin.io.encoding.Base64
 
-fun IsClientAttestationIssuerTrusted.Companion.usingTrustValidatorService(
-    httpClient: HttpClient,
-    service: Url,
-): IsClientAttestationIssuerTrusted = IsClientAttestationIssuerTrusted { x5c ->
-    val body = TrustQueryRequest(x5c, "WalletInstanceAttestation")
-    val trustResponse = runCatching {
-        httpClient.post(service) {
-            setBody(body)
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            expectSuccess = true
-        }
-    }.getOrElse {
-        return@IsClientAttestationIssuerTrusted TrustResult.ServiceFailure
-    }
-    if (trustResponse.body<TrustResponse>().trusted) {
-        TrustResult.IsTrusted
-    } else {
-        TrustResult.IsUntrusted
-    }
+@Serializable
+enum class VerificationContext {
+    @SerialName("WalletOrKeyStorageStatus")
+    WALLET_OR_KEY_STORAGE_STATUS,
+
+    @SerialName("WalletInstanceAttestation")
+    WALLET_INSTANCE_ATTESTATION,
 }
 
-val IsClientAttestationIssuerTrusted.Companion.Ignored: IsClientAttestationIssuerTrusted get() = IsClientAttestationIssuerTrusted {
-    TrustResult.IsTrusted
+sealed interface TrustResult {
+    object IsTrusted : TrustResult
+    object IsUntrusted : TrustResult
+    object ServiceFailure : TrustResult
 }
 
 @Serializable
-private data class TrustQueryRequest(
+internal data class TrustRequest(
     @Serializable(with = X509CertificateChainSerializer::class)
     val chain: List<X509Certificate>,
-    val verificationContext: String,
+    val verificationContext: VerificationContext,
 )
 
-private val base64 = Base64.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL)
-private val certificateFactory = CertificateFactory.getInstance("X.509")
-private object X509CertificateSerializer : KSerializer<X509Certificate> {
+internal val base64 = Base64.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL)
+internal val certificateFactory = CertificateFactory.getInstance("X.509")
+internal object X509CertificateSerializer : KSerializer<X509Certificate> {
 
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("X509Certificate", PrimitiveKind.STRING)
 
@@ -93,6 +78,6 @@ object X509CertificateChainSerializer : KSerializer<List<X509Certificate>> by Li
 
 @Serializable
 @JsonIgnoreUnknownKeys
-private data class TrustResponse(
+internal data class TrustResponse(
     @Required val trusted: Boolean,
 )

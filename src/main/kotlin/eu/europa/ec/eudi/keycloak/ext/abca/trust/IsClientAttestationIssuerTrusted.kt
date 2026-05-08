@@ -15,15 +15,23 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
+import arrow.core.NonEmptyList
+import io.ktor.client.HttpClient
+import io.ktor.http.Url
 import java.security.cert.X509Certificate
 
-sealed interface TrustResult {
-    object IsTrusted : TrustResult
-    object IsUntrusted : TrustResult
-    object ServiceFailure : TrustResult
+fun interface IsClientAttestationIssuerTrusted {
+    suspend operator fun invoke(x5c: NonEmptyList<X509Certificate>): TrustResult
+    companion object
 }
 
-fun interface IsClientAttestationIssuerTrusted {
-    suspend operator fun invoke(x5c: List<X509Certificate>): TrustResult
-    companion object
+fun IsClientAttestationIssuerTrusted.Companion.usingTrustValidatorService(
+    httpClient: HttpClient,
+    service: Url,
+): IsClientAttestationIssuerTrusted = IsClientAttestationIssuerTrusted { x5c ->
+    httpClient.validateTrust(service, x5c, VerificationContext.WALLET_INSTANCE_ATTESTATION)
+}
+
+val IsClientAttestationIssuerTrusted.Companion.Ignored: IsClientAttestationIssuerTrusted get() = IsClientAttestationIssuerTrusted {
+    TrustResult.IsTrusted
 }
