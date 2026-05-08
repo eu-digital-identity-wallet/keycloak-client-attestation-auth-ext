@@ -23,6 +23,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.Ignored
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientAttestationIssuerTrusted
+import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientStatusIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.TrustResult
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.usingTrustValidatorService
 import eu.europa.ec.eudi.statium.Status
@@ -121,10 +122,6 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
     either {
         val clientAttestationJWT = ensureClientAttestationJWTPresent(context)
 
-        val clientStatus = clientAttestationJWT.clientStatus
-        ensureClientStatusIsValid(httpClient, clientStatus)
-        context.clientAuthAttributes[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.encodeToString(clientStatus)
-
         val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
 
         // If the request form contains client_id, ensure it matches the client attestation jwt subject
@@ -136,6 +133,11 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
 
         ensureClientAttestationJWTIssuerTrusted(context, httpClient, clientAttestationJWT)
         ensureClientAttestationJWTStatusActive(httpClient, clientAttestationJWT)
+
+        val clientStatus = clientAttestationJWT.clientStatus
+        ensureClientStatusIsValid(httpClient, clientStatus, context)
+        context.clientAuthAttributes[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.encodeToString(clientStatus)
+
         ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
     }.fold(
         ifLeft = {
@@ -201,7 +203,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerT
             .header
             .x509CertChain
             .orEmpty()
-            .mapNotNull { X509CertUtils.parse(it.decode()) }
+            .map { requireNotNull(X509CertUtils.parse(it.decode())) }
         ensureNotNull(decoded.toNonEmptyListOrNull()) {
             ClientAuthenticationFailure.clientAttestationJWTMissingX5C()
         }
@@ -229,7 +231,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTStatusA
 ) {
     val statusListReference = clientAttestationJWT.status
     if (null != statusListReference) {
-        val status = runBlocking { statusListReference.verifyStatus(httpClient) }
+        val status = runBlocking { statusListReference.verifyStatus(httpClient, IsClientStatusIssuerTrusted.Ignored) }
         ensure(Status.Valid == status) {
             ClientAuthenticationFailure.clientAttestationJWTStatusNotValid()
         }
@@ -239,9 +241,22 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTStatusA
 private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
     httpClient: HttpClient,
     clientStatus: ClientStatus,
+    context: ClientAuthenticationFlowContext,
 ) {
     val statusListReference = clientStatus.status
-    val status = runBlocking { statusListReference.verifyStatus(httpClient) }
+
+    val config = Config.fromContext(context)
+    val trustValidationServiceUrl = config.trustValidatorServiceUrl
+
+    val isClientStatusIssuerTrusted = if (null != trustValidationServiceUrl) {
+        log.info("Validating Client Status JWT using Trust Validator Service; Service Url: $trustValidationServiceUrl")
+        IsClientStatusIssuerTrusted.usingTrustValidatorService(httpClient, trustValidationServiceUrl)
+    } else {
+        log.warn("Trust Validator Service Url not configured; Trusting all Client Status JWT")
+        IsClientStatusIssuerTrusted.Ignored
+    }
+
+    val status = runBlocking { statusListReference.verifyStatus(httpClient, isClientStatusIssuerTrusted) }
     ensure(Status.Valid == status) {
         ClientAuthenticationFailure.clientAttestationJWTInvalidClientStatus()
     }
