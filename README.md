@@ -26,12 +26,10 @@ Requirements
 
 Setup and Build
 - Format (optional) and build (Windows PowerShell):
-  - ./gradlew.bat spotlessApply build
-- Artifacts:
-  - Regular JAR: build\libs\<name>-<version>.jar
-  - Fat/uber JAR: ./gradlew.bat uberJar creates build\libs\<name>-<version>-uber.jar
-    - Note: The uberJar task may copy the built uber JAR to a local development Keycloak providers directory.
-      TODO: Make this destination configurable (currently hard‑coded for local development if present).
+  - `./gradlew.bat spotlessApply build`
+- The build task cretes two artifacts:
+  - Regular JAR: `build\libs\<name>-<version>.jar`
+  - Fat/uber JAR: `build\libs\<name>-<version>-all.jar`
 
 Deploy to Keycloak
 - Copy either the regular JAR (plus runtime deps if needed) or the uber JAR into your Keycloak providers directory. Examples:
@@ -78,10 +76,9 @@ Client Authenticator
   - Emits Keycloak events and returns OAuth error invalid_client_attestation on failures.
 
 Gradle Tasks / Scripts
-- ./gradlew.bat build — Compiles and packages the provider JAR(s).
+- ./gradlew.bat build — Compiles and packages the provider JARs (both Regular and Fat/uber JAR).
 - ./gradlew.bat test — Runs tests (JUnit Platform).
 - ./gradlew.bat spotlessApply — Applies ktlint formatting via Spotless.
-- ./gradlew.bat uberJar — Builds a fat JAR and may copy it to a development Keycloak providers dir (see note above).
 
 Environment and Configuration
 - MicroProfile Config (bundled in JAR):
@@ -92,7 +89,6 @@ Environment and Configuration
   - abca.lotl.refresh-interval-seconds — Refresh interval (seconds)
   - abca.lotl.http-timeout-ms — HTTP timeout (ms)
 - Keycloak runtime flags: None required specifically for this extension beyond standard server configuration.
-- TODO: Externalize uberJar copy destination via a Gradle property (e.g., -PuberJarCopyDir) or environment variable.
 
 Tests
 - Location: src\test\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\auth\AttestationClientAuthenticatorTest.kt
@@ -102,7 +98,7 @@ Tests
   - TODO: Add tests for challenge endpoint and well‑known provider.
 
 Project Structure
-- build.gradle.kts — Gradle build (Kotlin DSL); defines dependencies, Kotlin/JVM toolchain, Spotless, uberJar task.
+- build.gradle.kts — Gradle build (Kotlin DSL); defines dependencies, Kotlin/JVM toolchain, Spotless, shadowJar task.
 - gradle\libs.versions.toml — Version catalog for dependencies and plugins.
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\Spec.kt — Shared constants (e.g., header names, error codes).
 - src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\challenge\* — Challenge endpoint and provider factory.
