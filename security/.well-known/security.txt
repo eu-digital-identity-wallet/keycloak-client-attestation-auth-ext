@@ -1,0 +1,6 @@
+Contact: mailto:EC-VULNERABILITY-DISCLOSURE@ec.europa.eu,
+Expires: 2026-12-31T23:59:59.000Z
+Encryption: https://github.com/eu-digital-identity-wallet/keycloak-client-attestation-auth-ext/blob/main/security/pgp-key.txt
+Preferred-Languages: en
+Canonical: https://github.com/eu-digital-identity-wallet/keycloak-client-attestation-auth-ext/blob/main/security/.well-known/security.txt
+Policy: https://github.com/eu-digital-identity-wallet/keycloak-client-attestation-auth-ext/blob/main/SECURITY.md

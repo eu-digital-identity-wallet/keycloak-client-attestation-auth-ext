@@ -14,6 +14,9 @@ mockito = "5.22.0"
 mockito-kotlin = "6.2.3"
 jersey = "4.0.2"
 arrow = "2.1.2"
+dokka = "2.2.0"
+maven-publish = "0.35.0"
+dependency-check = "12.1.1"
 
 [libraries]
 # Kotlin
@@ -64,3 +67,6 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+dependency-check = { id = "org.owasp.dependencycheck", version.ref = "dependency-check" }
