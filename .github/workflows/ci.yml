@@ -69,7 +69,7 @@ jobs:
   publish-docker-image:
     name: Publish Docker image to GHCR
     needs: [ build ]
-    if: github.event_name != 'pull_request' && endsWith(needs.build-gradle.outputs.code-version, '-SNAPSHOT') && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release')) &&  github.repository_owner == 'eu-digital-identity-wallet'
+    if: (github.repository_owner == 'eu-digital-identity-wallet' || github.repository_owner == 'YOUR_GITHUB_USERNAME') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
