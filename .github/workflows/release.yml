@@ -20,7 +20,7 @@ jobs:
   publish-to-sonatype:
     name: Publish to sonatype.org
     needs: [ extract-code-version ]
-    if: (github.repository_owner == 'eu-digital-identity-wallet' || github.repository_owner == 'YOUR_GITHUB_USERNAME') && github.ref == 'refs/heads/main'
+    if: (github.repository_owner == 'eu-digital-identity-wallet' || github.repository_owner == 'atsant') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,7 +57,7 @@ jobs:
   publish-docker-image:
     name: Publish Docker image to GHCR
     needs: [ extract-code-version ]
-    if: (github.repository_owner == 'eu-digital-identity-wallet' || github.repository_owner == 'YOUR_GITHUB_USERNAME') && github.ref == 'refs/heads/main'
+    if: (github.repository_owner == 'eu-digital-identity-wallet' || github.repository_owner == 'atsant') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
