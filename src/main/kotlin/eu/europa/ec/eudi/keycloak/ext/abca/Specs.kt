@@ -72,4 +72,7 @@ object TokenStatusList {
 
 object RFC9449 {
     const val HEADER_DPOP = "DPoP"
+
+    // Errors
+    const val INVALID_DPOP_PROOF_ERROR = "invalid_dpop_proof"
 }

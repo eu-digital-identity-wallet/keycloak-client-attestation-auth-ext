@@ -658,15 +658,15 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     }
 
     internal fun dpopProofJwt(
-        dpopSigner: ECKey,
+        key: ECKey,
         clock: Clock = Clock.System,
     ): SignedJWT {
         val now = clock.now()
 
         val header = JWSHeader.Builder(JWSAlgorithm.ES256)
             .type(JOSEObjectType("dpop+jwt"))
-            .jwk(dpopSigner.toPublicJWK())
-            .keyID(dpopSigner.keyID)
+            .jwk(key.toPublicJWK())
+            .keyID(key.keyID)
             .build()
 
         val claims = JWTClaimsSet.Builder()
@@ -677,7 +677,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             .build()
 
         return SignedJWT(header, claims)
-            .also { it.sign(ECDSASigner(dpopSigner)) }
+            .also { it.sign(ECDSASigner(key)) }
     }
 
     @Test

@@ -166,35 +166,6 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
     }
 }
 
-@JvmInline
-value class DPoPProofJWT private constructor(val jwt: SignedJWT) {
-
-    val jwk: JWK
-        get() = jwt.requireJwkHeader()
-
-    companion object {
-        operator fun invoke(jwt: String): Result<DPoPProofJWT> =
-            result {
-                val jwt = SignedJWT.parse(jwt)
-                with(jwt) {
-                    requireIsSignedOrVerified()
-                    requireJwkHeader()
-                    verifySignatureWithJWK()
-                }
-                DPoPProofJWT(jwt)
-            }
-    }
-}
-
-private fun SignedJWT.requireJwkHeader(): JWK = requireNotNull(header.jwk) { "Missing jwk header" }
-private fun SignedJWT.verifySignatureWithJWK() {
-    val jwk = requireJwkHeader()
-    require(jwk is ECKey) { "Unsupported key type: ${jwk.algorithm}" }
-
-    val verifier = ECDSAVerifier(jwk)
-    require(verify(verifier)) { "Invalid DPoP Proof signature" }
-}
-
 private fun SignedJWT.verifySignature() {
     header.requireAllowedSigningAlgorithm()
 

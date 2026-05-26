@@ -171,11 +171,11 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPres
         ClientAuthenticationFailure.invalidClientAttestationPoPJWT()
     }
 }
-private fun Raise<ClientAuthenticationFailure>.ensureDPoPProofJWTPresent(context: ClientAuthenticationFlowContext): DPoPProofJWT {
+private fun Raise<ClientAuthenticationFailure>.ensureDPoPProofJWTPresent(context: ClientAuthenticationFlowContext): DPoPJWT {
     val header = ensureNotNull(context.httpRequest.httpHeaders[RFC9449.HEADER_DPOP]) {
         ClientAuthenticationFailure.missingDPoPProofJWT()
     }
-    return ensureNotNull(DPoPProofJWT(header).getOrNull()) {
+    return ensureNotNull(DPoPJWT(header).getOrNull()) {
         ClientAuthenticationFailure.invalidDPoPProofJWT()
     }
 }
@@ -302,7 +302,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureValidClientAttestationPoPJW
 
 private fun Raise<ClientAuthenticationFailure>.ensureValidDPoPProofJWT(
     clientAttestationJWT: ClientAttestationJWT,
-    dPoPProofJWT: DPoPProofJWT,
+    dPoPProofJWT: DPoPJWT,
 ) = ensure(clientAttestationJWT.jwk == dPoPProofJWT.jwk) {
     raise(ClientAuthenticationFailure.invalidDPoPProofJWTSignature())
 }
@@ -446,7 +446,7 @@ private data class ClientAuthenticationFailure(
         fun missingDPoPProofJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            RFC9449.INVALID_DPOP_PROOF_ERROR,
             "Missing DPoP Proof JWT",
             "missing_dpop_proof_jwt",
         )
@@ -454,7 +454,7 @@ private data class ClientAuthenticationFailure(
         fun invalidDPoPProofJWT() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            RFC9449.INVALID_DPOP_PROOF_ERROR,
             "DPoP Proof JWT is not valid",
             "dpop_proof_jwt_not_valid",
         )
@@ -462,7 +462,7 @@ private data class ClientAuthenticationFailure(
         fun invalidDPoPProofJWTSignature() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            RFC9449.INVALID_DPOP_PROOF_ERROR,
             "DPoP Proof JWT signature is not valid",
             "dpop_proof_jwt_signature_not_valid",
         )
