@@ -51,5 +51,5 @@ private fun SignedJWT.verifySignatureWithHeaderJwk() {
 }
 private fun SignedJWT.requireIsSignedOrVerified() =
     require(state == JWSObject.State.SIGNED || state == JWSObject.State.VERIFIED) {
-        "Client attestation JWT is not signed"
+        "DPoP JWT is not signed"
     }
