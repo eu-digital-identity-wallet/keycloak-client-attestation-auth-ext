@@ -20,11 +20,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.nimbusds.jose.*
 import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.crypto.MACSigner
-import com.nimbusds.jose.crypto.RSASSAVerifier
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.JWKSet
-import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet
 import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier
 import com.nimbusds.jose.proc.JWSVerificationKeySelector
@@ -35,11 +33,7 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
-import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
-import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
-import eu.europa.ec.eudi.keycloak.ext.abca.RFC7519
-import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
+import eu.europa.ec.eudi.keycloak.ext.abca.*
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
@@ -163,15 +157,42 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
     }
 
     fun verifyPop(clientAttestationJWT: ClientAttestationJWT) {
-        fun JWK.verifier(): JWSVerifier = when (this) {
-            is RSAKey -> RSASSAVerifier(this)
-            is ECKey -> ECDSAVerifier(this)
-            else -> error("Unsupported key type: ${this.algorithm}")
-        }
+        val jwk = clientAttestationJWT.jwk
+        require(jwk is ECKey) { "Unsupported key type: ${jwk.algorithm}" }
 
-        val verified = this.jwt.verify(clientAttestationJWT.jwk.verifier())
+        val verifier = ECDSAVerifier(jwk)
+        val verified = this.jwt.verify(verifier)
         require(verified) { "Invalid signature" }
     }
+}
+
+@JvmInline
+value class DPoPProofJWT private constructor(val jwt: SignedJWT) {
+
+    val jwk: JWK
+        get() = jwt.requireJwkHeader()
+
+    companion object {
+        operator fun invoke(jwt: String): Result<DPoPProofJWT> =
+            result {
+                val jwt = SignedJWT.parse(jwt)
+                with(jwt) {
+                    requireIsSignedOrVerified()
+                    requireJwkHeader()
+                    verifySignatureWithJWK()
+                }
+                DPoPProofJWT(jwt)
+            }
+    }
+}
+
+private fun SignedJWT.requireJwkHeader(): JWK = requireNotNull(header.jwk) { "Missing jwk header" }
+private fun SignedJWT.verifySignatureWithJWK() {
+    val jwk = requireJwkHeader()
+    require(jwk is ECKey) { "Unsupported key type: ${jwk.algorithm}" }
+
+    val verifier = ECDSAVerifier(jwk)
+    require(verify(verifier)) { "Invalid DPoP Proof signature" }
 }
 
 private fun SignedJWT.verifySignature() {

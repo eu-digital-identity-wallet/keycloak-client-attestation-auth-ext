@@ -69,3 +69,7 @@ object TokenStatusList {
     const val STATUS_LIST_IDX_CLAIM = "idx"
     const val STATUS_LIST_URI_CLAIM = "uri"
 }
+
+object RFC9449 {
+    const val HEADER_DPOP = "DPoP"
+}

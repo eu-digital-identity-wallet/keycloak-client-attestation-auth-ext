@@ -20,6 +20,7 @@ import arrow.core.raise.*
 import arrow.core.toNonEmptyListOrNull
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.RFC9449
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.Ignored
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientAttestationIssuerTrusted
@@ -123,6 +124,7 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
         val clientAttestationJWT = ensureClientAttestationJWTPresent(context)
 
         val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
+        val dPoPProofJWT = ensureDPoPProofJWTPresent(context)
 
         // If the request form contains client_id, ensure it matches the client attestation jwt subject
         val clientId = ensureClientIdMatch(context, clientAttestationJWT)
@@ -139,6 +141,7 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
         context.clientAuthAttributes[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.encodeToString(clientStatus)
 
         ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
+        ensureValidDPoPProofJWT(clientAttestationJWT, dPoPProofJWT)
     }.fold(
         ifLeft = {
             log.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
@@ -166,6 +169,14 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPres
     }
     return ensureNotNull(ClientAttestationPoPJWT(header).getOrNull()) {
         ClientAuthenticationFailure.invalidClientAttestationPoPJWT()
+    }
+}
+private fun Raise<ClientAuthenticationFailure>.ensureDPoPProofJWTPresent(context: ClientAuthenticationFlowContext): DPoPProofJWT {
+    val header = ensureNotNull(context.httpRequest.httpHeaders[RFC9449.HEADER_DPOP]) {
+        ClientAuthenticationFailure.missingDPoPProofJWT()
+    }
+    return ensureNotNull(DPoPProofJWT(header).getOrNull()) {
+        ClientAuthenticationFailure.invalidDPoPProofJWT()
     }
 }
 
@@ -287,6 +298,13 @@ private fun Raise<ClientAuthenticationFailure>.ensureValidClientAttestationPoPJW
     catch({ challenge.verify(context.session) }) {
         raise(ClientAuthenticationFailure.invalidClientAttestationPoPJWTChallenge())
     }
+}
+
+private fun Raise<ClientAuthenticationFailure>.ensureValidDPoPProofJWT(
+    clientAttestationJWT: ClientAttestationJWT,
+    dPoPProofJWT: DPoPProofJWT,
+) = ensure(clientAttestationJWT.jwk == dPoPProofJWT.jwk) {
+    raise(ClientAuthenticationFailure.invalidDPoPProofJWTSignature())
 }
 
 private data class ClientAuthenticationFailure(
@@ -423,6 +441,30 @@ private data class ClientAuthenticationFailure(
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Client Attestation PoP JWT Challenge is not valid",
             "client_attestation_pop_jwt_challenge_not_valid",
+        )
+
+        fun missingDPoPProofJWT() = ClientAuthenticationFailure(
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            Response.Status.UNAUTHORIZED,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Missing DPoP Proof JWT",
+            "missing_dpop_proof_jwt",
+        )
+
+        fun invalidDPoPProofJWT() = ClientAuthenticationFailure(
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            Response.Status.UNAUTHORIZED,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "DPoP Proof JWT is not valid",
+            "dpop_proof_jwt_not_valid",
+        )
+
+        fun invalidDPoPProofJWTSignature() = ClientAuthenticationFailure(
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            Response.Status.UNAUTHORIZED,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "DPoP Proof JWT signature is not valid",
+            "dpop_proof_jwt_signature_not_valid",
         )
     }
 }
