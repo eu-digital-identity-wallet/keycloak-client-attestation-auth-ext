@@ -32,6 +32,7 @@ import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.util.X509CertificateUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
+import eu.europa.ec.eudi.keycloak.ext.abca.RFC9449
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
@@ -148,10 +149,11 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `successful authentication`() {
             val clientId = "abca_test"
-            val (attestation, pop) = generateAttestationAndPop(clientId)
+            val (attestation, pop, dpop) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
+            whenever(httpHeaders.getHeaderString(RFC9449.HEADER_DPOP)).thenReturn(dpop)
 
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
@@ -169,10 +171,11 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         fun `successful authentication with EC holder key`() {
             val clientId = "abca_test"
 
-            val (attestation, pop) = generateAttestationAndPop(clientId)
+            val (attestation, pop, dpop) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
+            whenever(httpHeaders.getHeaderString(RFC9449.HEADER_DPOP)).thenReturn(dpop)
 
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
@@ -214,7 +217,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when PoP header is null`() {
             val clientId = "abca_test"
-            val (attestation, _) = generateAttestationAndPop(clientId)
+            val (attestation, _) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(null)
@@ -232,7 +235,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when PoP header is empty`() {
             val clientId = "abca_test"
-            val (attestation, _) = generateAttestationAndPop(clientId)
+            val (attestation, _) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn("")
@@ -277,7 +280,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when cnf is missing`() {
             val clientId = "abca_test"
-            val (attestation, pop) = generateAttestationAndPop(clientId, cnfJwk = null)
+            val (attestation, pop) = generateAuthenticationJwts(clientId, cnfJwk = null)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
 
@@ -294,7 +297,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when cnf jwk is missing`() {
             val clientId = "abca_test"
-            val (attestation, pop) = generateAttestationAndPop(clientId, cnfJwk = null)
+            val (attestation, pop) = generateAuthenticationJwts(clientId, cnfJwk = null)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
 
@@ -311,7 +314,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when cnf jwk is invalid type`() {
             val clientId = "abca_test"
-            val (attestation, pop) = generateAttestationAndPop(clientId, cnfJwk = "not-an-object")
+            val (attestation, pop) = generateAuthenticationJwts(clientId, cnfJwk = "not-an-object")
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
 
@@ -331,7 +334,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when client not found`() {
             val clientId = "missing_client"
-            val (attestation, pop) = generateAttestationAndPop(clientId)
+            val (attestation, pop) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
@@ -347,7 +350,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         @Test
         fun `fails when client is disabled`() {
             val clientId = "disabled_client"
-            val (attestation, pop) = generateAttestationAndPop(clientId)
+            val (attestation, pop) = generateAuthenticationJwts(clientId)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
@@ -372,7 +375,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             val pastClock = object : Clock {
                 override fun now() = Clock.System.now().minus(90.days)
             }
-            val (attestation, pop) = generateAttestationAndPop(clientId, clock = pastClock)
+            val (attestation, pop) = generateAuthenticationJwts(clientId, clock = pastClock)
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
@@ -399,7 +402,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
                 .keyID(UUID.randomUUID().toString())
                 .generate()
 
-            val (attestation, pop) = generateAttestationAndPop(
+            val (attestation, pop, dpop) = generateAuthenticationJwts(
                 clientId = clientId,
                 holderForCnf = holderKey, // advertise holderKey in cnf
                 popSigner = wrongHolderKey, // sign PoP with a different key
@@ -407,6 +410,60 @@ class AttestationBasedClientAuthenticatorFactoryTest {
 
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
             whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
+            whenever(httpHeaders.getHeaderString(RFC9449.HEADER_DPOP)).thenReturn(dpop)
+
+            val client: ClientModel = mock()
+            whenever(client.isEnabled).thenReturn(true)
+            whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+            whenever(context.client).thenReturn(client)
+
+            authenticator.authenticateClient(context)
+
+            verify(context, never()).success()
+            verify(context).failure(any(), anyOrNull())
+        }
+    }
+
+    @Nested
+    inner class DPoPVerification {
+        @Test
+        fun `fails when DPoP Proof is missing`() {
+            val clientId = "abca_test"
+            val (attestation, pop, _) = generateAuthenticationJwts(clientId)
+
+            whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
+            whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
+            whenever(httpHeaders.getHeaderString(RFC9449.HEADER_DPOP)).thenReturn(null)
+
+            val client: ClientModel = mock()
+            whenever(client.isEnabled).thenReturn(true)
+            whenever(clientProvider.getClientByClientId(realm, clientId)).thenReturn(client)
+            whenever(context.client).thenReturn(client)
+
+            authenticator.authenticateClient(context)
+
+            verify(context, never()).success()
+            verify(context).failure(any(), anyOrNull())
+        }
+
+        @Test
+        fun `fails when DPoP Proof signature does not match cnf jwk`() {
+            val clientId = "abca_test"
+            val wrongHolderKey = ECKeyGenerator(Curve.P_256)
+                .keyUse(KeyUse.SIGNATURE)
+                .algorithm(JWSAlgorithm.ES256)
+                .keyID(UUID.randomUUID().toString())
+                .generate()
+
+            val (attestation, pop, dpop) = generateAuthenticationJwts(
+                clientId = clientId,
+                holderForCnf = holderKey,
+                dpopSigner = wrongHolderKey,
+            )
+
+            whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION)).thenReturn(attestation)
+            whenever(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP)).thenReturn(pop)
+            whenever(httpHeaders.getHeaderString(RFC9449.HEADER_DPOP)).thenReturn(dpop)
 
             val client: ClientModel = mock()
             whenever(client.isEnabled).thenReturn(true)
@@ -440,14 +497,19 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         verify(context).failure(any(), anyOrNull())
     }
 
-    private fun generateAttestationAndPop(
+    private fun generateAuthenticationJwts(
         clientId: String = "abca_test",
         cnfJwk: Any? = holderKey.toPublicJWK().toJSONObject(),
         holderForCnf: ECKey = holderKey,
         popSigner: ECKey = holderForCnf,
+        dpopSigner: ECKey = holderForCnf,
         clock: Clock = Clock.System,
-    ): Pair<String, String> {
-        return attestationJwt(clientId, cnfJwk, clock).serialize() to popJwt(clientId, popSigner, clock).serialize()
+    ): Triple<String, String, String> {
+        return Triple(
+            attestationJwt(clientId, cnfJwk, clock).serialize(),
+            popJwt(clientId, popSigner, clock).serialize(),
+            dpopProofJwt(dpopSigner, clock).serialize(),
+        )
     }
 
     private fun Instant.toJavaDate(): Date = Date.from(toJavaInstant())
@@ -593,6 +655,29 @@ class AttestationBasedClientAuthenticatorFactoryTest {
 
         return SignedJWT(header, claims)
             .also { it.sign(ECDSASigner(popSigner)) }
+    }
+
+    internal fun dpopProofJwt(
+        key: ECKey,
+        clock: Clock = Clock.System,
+    ): SignedJWT {
+        val now = clock.now()
+
+        val header = JWSHeader.Builder(JWSAlgorithm.ES256)
+            .type(JOSEObjectType("dpop+jwt"))
+            .jwk(key.toPublicJWK())
+            .keyID(key.keyID)
+            .build()
+
+        val claims = JWTClaimsSet.Builder()
+            .jwtID(UUID.randomUUID().toString())
+            .issueTime(now.toJavaDate())
+            .claim("htm", "POST")
+            .claim("htu", "http://localhost:8080/realms/master/protocol/openid-connect/token")
+            .build()
+
+        return SignedJWT(header, claims)
+            .also { it.sign(ECDSASigner(key)) }
     }
 
     @Test
