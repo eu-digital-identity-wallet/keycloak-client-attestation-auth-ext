@@ -303,7 +303,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureValidClientAttestationPoPJW
 private fun Raise<ClientAuthenticationFailure>.ensureValidDPoPProofJWT(
     clientAttestationJWT: ClientAttestationJWT,
     dPoPProofJWT: DPoPJWT,
-) = ensure(clientAttestationJWT.jwk == dPoPProofJWT.jwk) {
+) = ensure(clientAttestationJWT.jwk.computeThumbprint() == dPoPProofJWT.jwk.computeThumbprint()) {
     raise(ClientAuthenticationFailure.invalidDPoPProofJWTSignature())
 }
 
