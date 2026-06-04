@@ -44,6 +44,7 @@ import org.keycloak.authentication.authenticators.client.ClientAuthUtil
 import org.keycloak.models.AuthenticationExecutionModel
 import org.keycloak.models.AuthenticatorConfigModel
 import org.keycloak.models.ClientModel
+import org.keycloak.models.KeycloakSession
 import org.keycloak.protocol.oauth2.OAuth2WellKnownProviderFactory
 import org.keycloak.protocol.oidc.OIDCLoginProtocol
 import org.keycloak.provider.ProviderConfigProperty
@@ -90,7 +91,10 @@ class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpCli
 
     override fun getConfigProperties(): List<ProviderConfigProperty> = ConfigurationProperties
 
-    override fun getAdapterConfiguration(client: ClientModel): Map<String, Any> = mapOf()
+    override fun getAdapterConfiguration(
+        session: KeycloakSession,
+        client: ClientModel,
+    ): Map<String, Any> = mapOf()
 
     override fun getProtocolAuthenticatorMethods(loginProtocol: String): Set<String> =
         when (loginProtocol) {
