@@ -108,8 +108,19 @@ spotless {
     }
 }
 
+tasks.jar {
+    enabled = false
+}
+
 tasks.shadowJar {
     archiveClassifier.set("")
+    enableAutoRelocation = true
+    enableKotlinModuleRemapping = true
+    relocationPrefix = "eu.europa.ec.eudi.keycloak.ext.abca.shadow"
+}
+
+tasks.assemble {
+    dependsOn(tasks.shadowJar)
 }
 
 tasks.test {
