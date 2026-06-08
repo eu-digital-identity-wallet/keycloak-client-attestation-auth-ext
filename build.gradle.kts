@@ -114,6 +114,9 @@ tasks.jar {
 
 tasks.shadowJar {
     archiveClassifier.set("")
+    enableAutoRelocation = true
+    enableKotlinModuleRemapping = true
+    relocationPrefix = "eu.europa.ec.eudi.keycloak.ext.abca.shadow"
 }
 
 tasks.assemble {
