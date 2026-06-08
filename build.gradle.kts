@@ -23,38 +23,39 @@ repositories {
 }
 
 dependencies {
-    implementation(platform(libs.kotlin.bom))
+    implementation(enforcedPlatform(libs.kotlin.bom))
+    implementation(enforcedPlatform(libs.kotlinx.serialization.bom))
+    implementation(enforcedPlatform(libs.kotlinx.coroutines.bom))
+    implementation(enforcedPlatform(libs.ktor.bom))
+    implementation(enforcedPlatform(libs.arrow.stack))
+    implementation(enforcedPlatform(libs.keycloak.dependencies.server.all))
+    testImplementation(enforcedPlatform(libs.mockito.bom))
+    testImplementation(enforcedPlatform(libs.jersey.bom))
+
     implementation(libs.kotlin.stdlib)
     testImplementation(libs.kotlin.test)
 
-    implementation(platform(libs.kotlinx.serialization.bom))
     implementation(libs.kotlinx.serialization.json)
 
-    implementation(platform(libs.kotlinx.coroutines.bom))
     implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlinx.coroutines.test)
 
-    implementation(platform(libs.ktor.bom))
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.ktor.client.mock)
 
-    implementation(platform(libs.arrow.stack))
     implementation(libs.arrow.core)
     implementation(libs.arrow.autoclose)
 
-    implementation(platform(libs.keycloak.dependencies.server.all))
     compileOnly(libs.keycloak.server.spi)
     compileOnly(libs.keycloak.services)
     testImplementation(libs.keycloak.server.spi)
     testImplementation(libs.keycloak.services)
 
-    testImplementation(platform(libs.mockito.bom))
     testImplementation(libs.mockito.core)
     testImplementation(libs.mockito.kotlin)
 
-    testImplementation(platform(libs.jersey.bom))
     testImplementation(libs.jersey.common)
 
     implementation(libs.nimbus.jose.jwt)
