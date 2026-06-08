@@ -109,19 +109,11 @@ spotless {
     }
 }
 
-tasks.jar {
-    enabled = false
-}
-
 tasks.shadowJar {
-    archiveClassifier.set("")
+    archiveClassifier = ""
     enableAutoRelocation = true
     enableKotlinModuleRemapping = true
     relocationPrefix = "eu.europa.ec.eudi.keycloak.ext.abca.shadow"
-}
-
-tasks.assemble {
-    dependsOn(tasks.shadowJar)
 }
 
 tasks.test {
@@ -158,6 +150,12 @@ mavenPublishing {
             url = "${Meta.BASE_URL}/actions"
         }
     }
+}
+
+tasks.withType<GenerateModuleMetadata> {
+    suppressedValidationErrors.addAll(
+        "enforced-platform",
+    )
 }
 
 dependencyCheck {
