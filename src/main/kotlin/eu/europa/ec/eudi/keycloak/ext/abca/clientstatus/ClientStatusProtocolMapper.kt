@@ -15,6 +15,10 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.clientstatus
 
+import arrow.core.getOrElse
+import arrow.core.raise.either
+import arrow.core.raise.ensure
+import arrow.core.raise.ensureNotNull
 import com.fasterxml.jackson.core.type.TypeReference
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
@@ -55,30 +59,29 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessToken {
-        if (TS3.EUDI_CLIENT_STATUS_CLAIM in token.otherClaims) {
-            logger.debug("AccessToken already contains ClientStatus")
-            return token
+    ): AccessToken =
+        either {
+            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "AccessToken already contains ClientStatus" }
+
+            val useLightweightAccessToken = getShouldUseLightweightToken(session)
+            val includeInAccessToken =
+                if (useLightweightAccessToken) {
+                    OIDCAttributeMapperHelper.includeInLightweightAccessToken(mappingModel)
+                } else {
+                    OIDCAttributeMapperHelper.includeInAccessToken(mappingModel)
+                }
+            ensure(includeInAccessToken) { "$id is configured NOT to include ClientStatus in AccessToken" }
+
+            val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
+
+            logger.info("Adding ClientStatus to AccessToken")
+            token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+
+            token
+        }.getOrElse {
+            logger.warn("ClientStatus NOT added to AccessToken: {}", it)
+            token
         }
-
-        val useLightweightAccessToken = getShouldUseLightweightToken(session)
-        val includeInAccessToken =
-            if (useLightweightAccessToken) {
-                OIDCAttributeMapperHelper.includeInLightweightAccessToken(mappingModel)
-            } else {
-                OIDCAttributeMapperHelper.includeInAccessToken(mappingModel)
-            }
-
-        if (includeInAccessToken) {
-            val clientStatus = session.clientStatus
-            if (null != clientStatus) {
-                logger.debug("Adding ClientStatus to AccessToken")
-                token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
-            }
-        }
-
-        return token
-    }
 
     override fun transformAccessTokenResponse(
         accessTokenResponse: AccessTokenResponse,
@@ -86,15 +89,10 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessTokenResponse {
-        if (TS3.EUDI_CLIENT_STATUS_CLAIM in accessTokenResponse.otherClaims) {
-            logger.debug("AccessTokenResponse already contains ClientStatus")
-            return accessTokenResponse
-        }
-
-        val clientStatus = session.clientStatus
-        if (null != clientStatus) {
-            val clientStatusExpiresIn by lazy { clientStatus.expiresAt - clock.now() }
+    ): AccessTokenResponse =
+        either {
+            val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
+            val clientStatusExpiresIn = clientStatus.expiresAt - clock.now()
             accessTokenResponse.token?.let {
                 logger.debug("Associating AccessToken with ClientStatus in Infinispan")
                 session.singleUseObjects().put(
@@ -112,14 +110,19 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
                 )
             }
 
-            if (OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
-                logger.debug("Adding ClientStatus to AccessTokenResponse")
-                accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
+            ensure(OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
+                "$id is configured NOT to include ClientStatus in AccessTokenResponse"
             }
-        }
 
-        return accessTokenResponse
-    }
+            logger.info("Adding ClientStatus to AccessTokenResponse")
+            accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+
+            accessTokenResponse
+        }.getOrElse {
+            logger.warn("ClientStatus NOT added to AccessTokenResponse: {}", it)
+            accessTokenResponse
+        }
 
     override fun transformIntrospectionToken(
         token: AccessToken,
@@ -127,30 +130,29 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessToken {
-        if (!OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
-            return token
+    ): AccessToken =
+        either {
+            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "Introspected AccessToken/RefreshToken already contains ClientStatus" }
+            ensure(OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
+                "$id is configured NOT to include ClientStatus in introspected AccessToken/RefreshToken"
+            }
+
+            val formData = checkNotNull(session.context.httpRequest.decodedFormParameters)
+            val introspectedToken = checkNotNull(formData.getFirst(Constants.TOKEN))
+
+            val clientStatusNotes = ensureNotNull(session.singleUseObjects().get("$introspectedToken.${TS3.EUDI_CLIENT_STATUS_CLAIM}")) {
+                "NO ClientStatus associated with introspected AccessToken/RefreshToken in Infinispan"
+            }
+            val clientStatus = Json.decodeFromString<ClientStatus>(checkNotNull(clientStatusNotes[TS3.EUDI_CLIENT_STATUS_CLAIM]))
+
+            logger.info("Adding ClientStatus to introspected AccessToken/RefreshToken")
+            token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+
+            token
+        }.getOrElse {
+            logger.warn("ClientStatus NOT added to introspected AccessToken/RefreshToken: {}", it)
+            token
         }
-
-        if (TS3.EUDI_CLIENT_STATUS_CLAIM in token.otherClaims) {
-            logger.debug("Introspected AccessToken/RefreshToken already contains ClientStatus")
-            return token
-        }
-
-        val formData = session.context.httpRequest.decodedFormParameters
-        val introspectedToken = checkNotNull(formData.getFirst(Constants.TOKEN))
-
-        val clientStatusNotes = session.singleUseObjects().get("$introspectedToken.${TS3.EUDI_CLIENT_STATUS_CLAIM}")
-        if (null == clientStatusNotes) {
-            logger.debug("No ClientStatus associated with introspected AccessToken/RefreshToken in Infinispan")
-            return token
-        }
-        val clientStatus = Json.decodeFromString<ClientStatus>(checkNotNull(clientStatusNotes[TS3.EUDI_CLIENT_STATUS_CLAIM]))
-
-        logger.debug("Adding ClientStatus to introspected AccessToken/RefreshToken")
-        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
-        return token
-    }
 }
 
 private fun ClientStatus.toJackson(): Map<String, Any> =
