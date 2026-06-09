@@ -35,11 +35,9 @@ import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
+import io.ktor.client.*
+import io.ktor.client.engine.mock.*
+import io.ktor.http.*
 import jakarta.ws.rs.core.HttpHeaders
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested

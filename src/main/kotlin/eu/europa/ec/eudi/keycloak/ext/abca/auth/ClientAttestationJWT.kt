@@ -35,12 +35,9 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
-import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
-import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
-import eu.europa.ec.eudi.keycloak.ext.abca.RFC7519
-import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
+import eu.europa.ec.eudi.keycloak.ext.abca.*
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
+import eu.europa.ec.eudi.keycloak.ext.abca.serialization.InstantEpochSecondsSerializer
 import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -49,15 +46,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.net.URI
+import kotlin.time.Instant
 
 @Serializable
 data class ClientStatus(
     @Required
     @SerialName(TokenStatusList.STATUS_CLAIM)
     val status: Status,
+
     @Required
-    @SerialName(RFC7519.EXP_CLAIM)
-    val exp: Long,
+    @SerialName(RFC7519.EXPIRES_AT_CLAIM)
+    @Serializable(with = InstantEpochSecondsSerializer::class)
+    val expiresAt: Instant,
 )
 
 @JvmInline

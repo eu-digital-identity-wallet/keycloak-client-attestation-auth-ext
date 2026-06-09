@@ -20,12 +20,8 @@ import arrow.core.raise.*
 import arrow.core.toNonEmptyListOrNull
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
-import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.Ignored
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientAttestationIssuerTrusted
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.IsClientStatusIssuerTrusted
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.TrustResult
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.usingTrustValidatorService
+import eu.europa.ec.eudi.keycloak.ext.abca.trust.*
+import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.statium.Status
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
@@ -35,7 +31,6 @@ import io.ktor.serialization.kotlinx.json.*
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.keycloak.authentication.AuthenticationFlowError
 import org.keycloak.authentication.ClientAuthenticationFlowContext
 import org.keycloak.authentication.authenticators.client.AbstractClientAuthenticator
@@ -140,7 +135,7 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
 
         val clientStatus = clientAttestationJWT.clientStatus
         ensureClientStatusIsValid(httpClient, clientStatus, context)
-        context.clientAuthAttributes[TS3.EUDI_CLIENT_STATUS_CLAIM] = Json.encodeToString(clientStatus)
+        context.session.clientStatus = clientStatus
 
         ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
     }.fold(
