@@ -20,13 +20,8 @@ import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import kotlinx.serialization.json.Json
-import org.keycloak.Config
 import org.keycloak.models.*
-import org.keycloak.protocol.ProtocolMapper
-import org.keycloak.protocol.oidc.OIDCLoginProtocol
-import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenMapper
-import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenResponseMapper
-import org.keycloak.protocol.oidc.mappers.TokenIntrospectionTokenMapper
+import org.keycloak.protocol.oidc.mappers.*
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.representations.AccessToken
 import org.keycloak.representations.AccessTokenResponse
@@ -37,35 +32,22 @@ import kotlin.time.Clock
 private val logger = LoggerFactory.getLogger(ClientStatusProtocolMapper::class.java)
 
 class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
-    ProtocolMapper,
+    AbstractOIDCProtocolMapper(),
     OIDCAccessTokenMapper,
     OIDCAccessTokenResponseMapper,
     TokenIntrospectionTokenMapper {
-    override fun getProtocol(): String = OIDCLoginProtocol.LOGIN_PROTOCOL
 
-    override fun getDisplayCategory(): String = "Token mapper"
+    override fun getDisplayCategory(): String = TOKEN_MAPPER_CATEGORY
 
     override fun getDisplayType(): String = "Client Status"
-
-    override fun close() {
-        // no-op
-    }
-
-    override fun create(session: KeycloakSession): ClientStatusProtocolMapper = ClientStatusProtocolMapper()
-
-    override fun init(config: Config.Scope?) {
-        // no-op
-    }
-
-    override fun postInit(factory: KeycloakSessionFactory?) {
-        // no-op
-    }
 
     override fun getId(): String = "client-status-protocol-mapper"
 
     override fun getHelpText(): String = "Maps the '${TS3.EUDI_CLIENT_STATUS_CLAIM}' Keycloak session attribute to the '${TS3.EUDI_CLIENT_STATUS_CLAIM}' claim of the token"
 
-    override fun getConfigProperties(): List<ProviderConfigProperty> = emptyList()
+    override fun getConfigProperties(): List<ProviderConfigProperty> = buildList {
+        OIDCAttributeMapperHelper.addIncludeInTokensConfig(this, ClientStatusProtocolMapper::class.java)
+    }
 
     override fun transformAccessToken(
         token: AccessToken,
@@ -79,10 +61,20 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
             return token
         }
 
-        val clientStatus = session.clientStatus
-        if (null != clientStatus) {
-            logger.debug("Adding ClientStatus to AccessToken")
-            token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+        val useLightweightAccessToken = getShouldUseLightweightToken(session)
+        val includeInAccessToken =
+            if (useLightweightAccessToken) {
+                OIDCAttributeMapperHelper.includeInLightweightAccessToken(mappingModel)
+            } else {
+                OIDCAttributeMapperHelper.includeInAccessToken(mappingModel)
+            }
+
+        if (includeInAccessToken) {
+            val clientStatus = session.clientStatus
+            if (null != clientStatus) {
+                logger.debug("Adding ClientStatus to AccessToken")
+                token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+            }
         }
 
         return token
@@ -102,9 +94,6 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
         val clientStatus = session.clientStatus
         if (null != clientStatus) {
-            logger.debug("Adding ClientStatus to AccessTokenResponse")
-            accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
-
             val clientStatusExpiresIn by lazy { clientStatus.expiresAt - clock.now() }
             accessTokenResponse.token?.let {
                 logger.debug("Associating AccessToken with ClientStatus in Infinispan")
@@ -122,6 +111,11 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
                     mapOf(TS3.EUDI_CLIENT_STATUS_CLAIM to Json.encodeToString(clientStatus)),
                 )
             }
+
+            if (OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
+                logger.debug("Adding ClientStatus to AccessTokenResponse")
+                accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+            }
         }
 
         return accessTokenResponse
@@ -134,6 +128,10 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
     ): AccessToken {
+        if (!OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
+            return token
+        }
+
         if (TS3.EUDI_CLIENT_STATUS_CLAIM in token.otherClaims) {
             logger.debug("Introspected AccessToken/RefreshToken already contains ClientStatus")
             return token
