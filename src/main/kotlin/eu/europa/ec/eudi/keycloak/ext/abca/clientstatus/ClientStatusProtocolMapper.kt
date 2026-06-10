@@ -32,6 +32,7 @@ import org.keycloak.representations.AccessTokenResponse
 import org.keycloak.util.JsonSerialization
 import org.slf4j.LoggerFactory
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 
 private val logger = LoggerFactory.getLogger(ClientStatusProtocolMapper::class.java)
 
@@ -95,17 +96,29 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
             val clientStatusExpiresIn = clientStatus.expiresAt - clock.now()
             accessTokenResponse.token?.let {
                 logger.debug("Associating AccessToken with ClientStatus in Infinispan")
+                val lifespan =
+                    if (accessTokenResponse.expiresIn > 0L) {
+                        accessTokenResponse.expiresIn.seconds
+                    } else {
+                        clientStatusExpiresIn
+                    }
                 session.singleUseObjects().put(
                     "$it.${TS3.EUDI_CLIENT_STATUS_CLAIM}",
-                    clientStatusExpiresIn.inWholeSeconds,
+                    lifespan.inWholeSeconds,
                     mapOf(TS3.EUDI_CLIENT_STATUS_CLAIM to Json.encodeToString(clientStatus)),
                 )
             }
             accessTokenResponse.refreshToken?.let {
                 logger.debug("Associating RefreshToken with ClientStatus in Infinispan")
+                val lifespan =
+                    if (accessTokenResponse.refreshExpiresIn > 0L) {
+                        accessTokenResponse.refreshExpiresIn.seconds
+                    } else {
+                        clientStatusExpiresIn
+                    }
                 session.singleUseObjects().put(
                     "$it.${TS3.EUDI_CLIENT_STATUS_CLAIM}",
-                    clientStatusExpiresIn.inWholeSeconds,
+                    lifespan.inWholeSeconds,
                     mapOf(TS3.EUDI_CLIENT_STATUS_CLAIM to Json.encodeToString(clientStatus)),
                 )
             }
