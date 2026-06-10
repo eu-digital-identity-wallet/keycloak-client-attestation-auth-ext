@@ -444,9 +444,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         holderForCnf: ECKey = holderKey,
         popSigner: ECKey = holderForCnf,
         clock: Clock = Clock.System,
-    ): Pair<String, String> {
-        return attestationJwt(clientId, cnfJwk, clock).serialize() to popJwt(clientId, popSigner, clock).serialize()
-    }
+    ): Pair<String, String> = attestationJwt(clientId, cnfJwk, clock).serialize() to popJwt(clientId, popSigner, clock).serialize()
 
     private fun Instant.toJavaDate(): Date = Date.from(toJavaInstant())
 

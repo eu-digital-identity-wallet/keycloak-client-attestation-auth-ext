@@ -99,36 +99,34 @@ value class ClientAttestationJWT private constructor(val jwt: SignedJWT) {
         get() = jwt.jwtClaimsSet.clientStatus().getOrThrow()
 
     companion object {
-        operator fun invoke(jwt: String): Result<ClientAttestationJWT> =
-            result {
-                invoke(SignedJWT.parse(jwt)).getOrThrow()
-            }
+        operator fun invoke(jwt: String): Result<ClientAttestationJWT> = result {
+            invoke(SignedJWT.parse(jwt)).getOrThrow()
+        }
 
-        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationJWT> =
-            result {
-                with(jwt) {
-                    requireIsSignedOrVerified()
-                    requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE)
-                    requireMandatoryClaims(
-                        "iss",
-                        "sub",
-                        "exp",
-                        "cnf",
-                        OpenId4VCI.WALLET_NAME_CLAIM,
-                        TS3.EUDI_WALLET_VERSION_CLAIM,
-                        TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
-                        TS3.EUDI_CLIENT_STATUS_CLAIM,
-                    )
-                    verifySignature()
-                    requireValidConfirmationJwk()
-                    requireWalletName()
-                    requireWalletVersion()
-                    requireWalletSolutionCertificationInformation()
-                    requireClientStatus()
-                    ensureWalletLinkType()
-                }
-                ClientAttestationJWT(jwt)
+        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationJWT> = result {
+            with(jwt) {
+                requireIsSignedOrVerified()
+                requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE)
+                requireMandatoryClaims(
+                    "iss",
+                    "sub",
+                    "exp",
+                    "cnf",
+                    OpenId4VCI.WALLET_NAME_CLAIM,
+                    TS3.EUDI_WALLET_VERSION_CLAIM,
+                    TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
+                    TS3.EUDI_CLIENT_STATUS_CLAIM,
+                )
+                verifySignature()
+                requireValidConfirmationJwk()
+                requireWalletName()
+                requireWalletVersion()
+                requireWalletSolutionCertificationInformation()
+                requireClientStatus()
+                ensureWalletLinkType()
             }
+            ClientAttestationJWT(jwt)
+        }
     }
 }
 
@@ -144,22 +142,20 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
         get() = jwt.jwtClaimsSet.getStringClaim(AttestationBasedClientAuthentication.CHALLENGE_CLAIM)?.let { Challenge(it) }
 
     companion object {
-        operator fun invoke(jwt: String): Result<ClientAttestationPoPJWT> =
-            result {
-                invoke(SignedJWT.parse(jwt)).getOrThrow()
+        operator fun invoke(jwt: String): Result<ClientAttestationPoPJWT> = result {
+            invoke(SignedJWT.parse(jwt)).getOrThrow()
+        }
+
+        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationPoPJWT> = result {
+            with(jwt) {
+                requireIsSignedOrVerified()
+                requireNotMACSigned()
+                requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_JWT_TYPE)
+                requireMandatoryClaims("iss", "aud", "jti", "iat")
             }
 
-        operator fun invoke(jwt: SignedJWT): Result<ClientAttestationPoPJWT> =
-            result {
-                with(jwt) {
-                    requireIsSignedOrVerified()
-                    requireNotMACSigned()
-                    requireType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_JWT_TYPE)
-                    requireMandatoryClaims("iss", "aud", "jti", "iat")
-                }
-
-                ClientAttestationPoPJWT(jwt)
-            }
+            ClientAttestationPoPJWT(jwt)
+        }
     }
 
     fun verifyPop(clientAttestationJWT: ClientAttestationJWT) {
@@ -190,23 +186,20 @@ private fun SignedJWT.verifySignature() {
     }
 }
 
-private fun SignedJWT.requireMandatoryClaims(first: String, vararg remaining: String) =
-    DefaultJWTClaimsVerifier<SecurityContext>(
-        null,
-        setOf(first, *remaining),
-    ).apply {
-        maxClockSkew = 60
-    }.verify(jwtClaimsSet, null)
+private fun SignedJWT.requireMandatoryClaims(first: String, vararg remaining: String) = DefaultJWTClaimsVerifier<SecurityContext>(
+    null,
+    setOf(first, *remaining),
+).apply {
+    maxClockSkew = 60
+}.verify(jwtClaimsSet, null)
 
-private fun SignedJWT.requireIsSignedOrVerified() =
-    require(state == JWSObject.State.SIGNED || state == JWSObject.State.VERIFIED) {
-        "Client attestation JWT is not signed"
-    }
+private fun SignedJWT.requireIsSignedOrVerified() = require(state == JWSObject.State.SIGNED || state == JWSObject.State.VERIFIED) {
+    "Client attestation JWT is not signed"
+}
 
-private fun SignedJWT.requireNotMACSigned() =
-    require(!header.algorithm.isMACSigning()) {
-        "MAC signing algorithm not allowed"
-    }
+private fun SignedJWT.requireNotMACSigned() = require(!header.algorithm.isMACSigning()) {
+    "MAC signing algorithm not allowed"
+}
 
 private fun SignedJWT.requireValidConfirmationJwk(): JWK {
     val jwk = jwtClaimsSet.cnf().cnfJwk()
@@ -248,23 +241,17 @@ private fun JWTClaimsSet.walletName(): Result<String> = runCatching {
     requireNotNull(getStringClaim(OpenId4VCI.WALLET_NAME_CLAIM))
 }
 
-private fun JWTClaimsSet.cnf(): JsonObject {
-    return requireNotNull(getJSONObjectClaim(AttestationBasedClientAuthentication.CNF_CLAIM)).toJsonObject()
+private fun JWTClaimsSet.cnf(): JsonObject = requireNotNull(getJSONObjectClaim(AttestationBasedClientAuthentication.CNF_CLAIM)).toJsonObject()
+
+private fun JsonObject.cnfJwk(): JWK = requireNotNull(this[AttestationBasedClientAuthentication.CNF_JWK_CLAIM]).let {
+    val jsonString = json.encodeToString(it)
+    JWK.parse(jsonString)
 }
 
-private fun JsonObject.cnfJwk(): JWK {
-    return requireNotNull(this[AttestationBasedClientAuthentication.CNF_JWK_CLAIM]).let {
-        val jsonString = json.encodeToString(it)
-        JWK.parse(jsonString)
-    }
-}
-
-private fun JWTClaimsSet.status(): Status? {
-    return getJSONObjectClaim(AttestationBasedClientAuthentication.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
-        runCatching {
-            json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
-        }.getOrNull()
-    }
+private fun JWTClaimsSet.status(): Status? = getJSONObjectClaim(AttestationBasedClientAuthentication.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
+    runCatching {
+        json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
+    }.getOrNull()
 }
 
 private fun JWTClaimsSet.clientStatus(): Result<ClientStatus> = runCatching {

@@ -33,12 +33,10 @@ value class Challenge(val value: String) {
     fun verify(session: KeycloakSession) = session.verifyChallenge(value)
 }
 
-internal fun KeycloakSession.challenge(): String {
-    return cNonceHandler().buildCNonce(
-        listOf(audience()),
-        mapOf(JwtCNonceHandler.SOURCE_ENDPOINT to sourceEndpoint()),
-    )
-}
+internal fun KeycloakSession.challenge(): String = cNonceHandler().buildCNonce(
+    listOf(audience()),
+    mapOf(JwtCNonceHandler.SOURCE_ENDPOINT to sourceEndpoint()),
+)
 
 internal fun KeycloakSession.verifyChallenge(challenge: String) {
     cNonceHandler().verifyCNonce(

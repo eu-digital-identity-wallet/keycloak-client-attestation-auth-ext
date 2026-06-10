@@ -47,12 +47,12 @@ import org.keycloak.provider.ProviderConfigurationBuilder
 import org.keycloak.wellknown.WellKnownProvider
 import org.slf4j.LoggerFactory
 
-private const val TrustValidatorServiceUrl = "serviceUrl"
+private const val TRUST_VALIDATOR_SERVICE_URL = "serviceUrl"
 
 private val ConfigurationProperties =
     ProviderConfigurationBuilder.create()
         .property()
-        .name(TrustValidatorServiceUrl)
+        .name(TRUST_VALIDATOR_SERVICE_URL)
         .type(STRING_TYPE)
         .defaultValue(null)
         .label("Trust Validator Service URL")
@@ -60,24 +60,23 @@ private val ConfigurationProperties =
         .add()
         .build()
 
-private const val Id = "abca-draft07"
+private const val ID = "abca-draft07"
 
-private val log = LoggerFactory.getLogger(AttestationBasedClientAuthenticatorFactory::class.java)
+private val LOG = LoggerFactory.getLogger(AttestationBasedClientAuthenticatorFactory::class.java)
 
 class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpClient) : AbstractClientAuthenticator() {
 
     constructor() : this(createHttpClient())
 
     init {
-        log.info("Initializing AttestationBasedClientAuthenticatorFactory...")
+        LOG.info("Initializing AttestationBasedClientAuthenticatorFactory...")
     }
 
-    override fun getId(): String = Id
+    override fun getId(): String = ID
 
     override fun getDisplayType(): String = "Attestation-Based Client Authentication"
 
-    override fun getHelpText(): String =
-        "Authenticates OAuth Clients using a Client Attestation JWT, and a Client Attestation PoP JWT bound to a server-issued challenge."
+    override fun getHelpText(): String = "Authenticates OAuth Clients using a Client Attestation JWT, and a Client Attestation PoP JWT bound to a server-issued challenge."
 
     override fun isConfigurable(): Boolean = true
 
@@ -90,11 +89,10 @@ class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpCli
         client: ClientModel,
     ): Map<String, Any> = mapOf()
 
-    override fun getProtocolAuthenticatorMethods(loginProtocol: String): Set<String> =
-        when (loginProtocol) {
-            OIDCLoginProtocol.LOGIN_PROTOCOL -> setOf(AttestationBasedClientAuthentication.AUTHENTICATION_METHOD)
-            else -> emptySet()
-        }
+    override fun getProtocolAuthenticatorMethods(loginProtocol: String): Set<String> = when (loginProtocol) {
+        OIDCLoginProtocol.LOGIN_PROTOCOL -> setOf(AttestationBasedClientAuthentication.AUTHENTICATION_METHOD)
+        else -> emptySet()
+    }
 
     override fun getRequirementChoices(): Array<AuthenticationExecutionModel.Requirement> = REQUIREMENT_CHOICES
 
@@ -104,13 +102,12 @@ class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpCli
 private class Config(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
 
     val trustValidatorServiceUrl: Url?
-        get() = get(TrustValidatorServiceUrl)
+        get() = get(TRUST_VALIDATOR_SERVICE_URL)
             ?.let { Url(it) }
 
-    operator fun get(name: String): String? =
-        (client.getAttribute(name) ?: authenticator?.config[name])
-            ?.takeIf { it.isNotBlank() }
-            ?.trim()
+    operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
+        ?.takeIf { it.isNotBlank() }
+        ?.trim()
 
     companion object {
         fun fromContext(context: ClientAuthenticationFlowContext): Config = Config(context.client, context.authenticatorConfig)
@@ -140,11 +137,11 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
         ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
     }.fold(
         ifLeft = {
-            log.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
+            LOG.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
             context.failure(it)
         },
         ifRight = {
-            log.info("Successfully authenticated Client ${context.client.clientId} using Attestation Based Client Authentication")
+            LOG.info("Successfully authenticated Client ${context.client.clientId} using Attestation Based Client Authentication")
             context.success()
         },
     )
@@ -211,10 +208,10 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerT
     val config = Config.fromContext(context)
     val isClientAttestationJWTIssuerTrusted =
         config.trustValidatorServiceUrl?.let {
-            log.info("Validating Client Attestation JWT Issuer using Trust Validator Service; Service Url: $it")
+            LOG.info("Validating Client Attestation JWT Issuer using Trust Validator Service; Service Url: $it")
             IsClientAttestationIssuerTrusted.usingTrustValidatorService(httpClient, it)
         } ?: run {
-            log.warn("Trust Validator Service Url not configured; Trusting all Client Attestation JWT Issuers")
+            LOG.warn("Trust Validator Service Url not configured; Trusting all Client Attestation JWT Issuers")
             IsClientAttestationIssuerTrusted.Ignored
         }
 
@@ -248,10 +245,10 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
     val trustValidationServiceUrl = config.trustValidatorServiceUrl
 
     val isClientStatusIssuerTrusted = if (null != trustValidationServiceUrl) {
-        log.info("Validating Client Status JWT using Trust Validator Service; Service Url: $trustValidationServiceUrl")
+        LOG.info("Validating Client Status JWT using Trust Validator Service; Service Url: $trustValidationServiceUrl")
         IsClientStatusIssuerTrusted.usingTrustValidatorService(httpClient, trustValidationServiceUrl)
     } else {
-        log.warn("Trust Validator Service Url not configured; Trusting all Client Status JWT")
+        LOG.warn("Trust Validator Service Url not configured; Trusting all Client Status JWT")
         IsClientStatusIssuerTrusted.Ignored
     }
 
@@ -438,15 +435,13 @@ private fun ClientAuthenticationFlowContext.failure(authenticationFailure: Clien
     )
 }
 
-private operator fun HttpHeaders.get(name: String): String? =
-    getHeaderString(name)?.takeIf { it.isNotBlank() }?.trim()
+private operator fun HttpHeaders.get(name: String): String? = getHeaderString(name)?.takeIf { it.isNotBlank() }?.trim()
 
-private fun createHttpClient(): HttpClient =
-    HttpClient(OkHttp) {
-        install(ContentNegotiation) {
-            json()
-        }
+private fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
+    install(ContentNegotiation) {
+        json()
     }
+}
 
 private val ClientAuthenticationFlowContext.issuer: String
     get() = autoCloseScope {

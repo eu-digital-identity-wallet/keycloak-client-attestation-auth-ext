@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
-private val logger = LoggerFactory.getLogger(ClientStatusProtocolMapper::class.java)
+private val LOGGER = LoggerFactory.getLogger(ClientStatusProtocolMapper::class.java)
 
 class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
     AbstractOIDCProtocolMapper(),
@@ -60,29 +60,28 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessToken =
-        either {
-            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "AccessToken already contains ClientStatus" }
+    ): AccessToken = either {
+        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "AccessToken already contains ClientStatus" }
 
-            val useLightweightAccessToken = getShouldUseLightweightToken(session)
-            val includeInAccessToken =
-                if (useLightweightAccessToken) {
-                    OIDCAttributeMapperHelper.includeInLightweightAccessToken(mappingModel)
-                } else {
-                    OIDCAttributeMapperHelper.includeInAccessToken(mappingModel)
-                }
-            ensure(includeInAccessToken) { "$id is configured NOT to include ClientStatus in AccessToken" }
+        val useLightweightAccessToken = getShouldUseLightweightToken(session)
+        val includeInAccessToken =
+            if (useLightweightAccessToken) {
+                OIDCAttributeMapperHelper.includeInLightweightAccessToken(mappingModel)
+            } else {
+                OIDCAttributeMapperHelper.includeInAccessToken(mappingModel)
+            }
+        ensure(includeInAccessToken) { "$id is configured NOT to include ClientStatus in AccessToken" }
 
-            val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
+        val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
 
-            logger.info("Adding ClientStatus to AccessToken")
-            token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+        LOGGER.info("Adding ClientStatus to AccessToken")
+        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
 
-            token
-        }.getOrElse {
-            logger.warn("ClientStatus NOT added to AccessToken: {}", it)
-            token
-        }
+        token
+    }.getOrElse {
+        LOGGER.warn("ClientStatus NOT added to AccessToken: {}", it)
+        token
+    }
 
     override fun transformAccessTokenResponse(
         accessTokenResponse: AccessTokenResponse,
@@ -90,52 +89,25 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessTokenResponse =
-        either {
-            val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
-            val clientStatusExpiresIn = clientStatus.expiresAt - clock.now()
-            accessTokenResponse.token?.let {
-                logger.debug("Associating AccessToken with ClientStatus in Infinispan")
-                val lifespan =
-                    if (accessTokenResponse.expiresIn > 0L) {
-                        accessTokenResponse.expiresIn.seconds
-                    } else {
-                        clientStatusExpiresIn
-                    }
-                session.singleUseObjects().put(
-                    "$it.${TS3.EUDI_CLIENT_STATUS_CLAIM}",
-                    lifespan.inWholeSeconds,
-                    mapOf(TS3.EUDI_CLIENT_STATUS_CLAIM to Json.encodeToString(clientStatus)),
-                )
-            }
-            accessTokenResponse.refreshToken?.let {
-                logger.debug("Associating RefreshToken with ClientStatus in Infinispan")
-                val lifespan =
-                    if (accessTokenResponse.refreshExpiresIn > 0L) {
-                        accessTokenResponse.refreshExpiresIn.seconds
-                    } else {
-                        clientStatusExpiresIn
-                    }
-                session.singleUseObjects().put(
-                    "$it.${TS3.EUDI_CLIENT_STATUS_CLAIM}",
-                    lifespan.inWholeSeconds,
-                    mapOf(TS3.EUDI_CLIENT_STATUS_CLAIM to Json.encodeToString(clientStatus)),
-                )
-            }
-
-            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
-            ensure(OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
-                "$id is configured NOT to include ClientStatus in AccessTokenResponse"
-            }
-
-            logger.info("Adding ClientStatus to AccessTokenResponse")
-            accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
-
-            accessTokenResponse
-        }.getOrElse {
-            logger.warn("ClientStatus NOT added to AccessTokenResponse: {}", it)
-            accessTokenResponse
+    ): AccessTokenResponse = either {
+        val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
+        context(session, clock) {
+            clientStatus.associateWithTokensOf(accessTokenResponse)
         }
+
+        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
+        ensure(OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
+            "$id is configured NOT to include ClientStatus in AccessTokenResponse"
+        }
+
+        LOGGER.info("Adding ClientStatus to AccessTokenResponse")
+        accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+
+        accessTokenResponse
+    }.getOrElse {
+        LOGGER.warn("ClientStatus NOT added to AccessTokenResponse: {}", it)
+        accessTokenResponse
+    }
 
     override fun transformIntrospectionToken(
         token: AccessToken,
@@ -143,30 +115,69 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         session: KeycloakSession,
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
-    ): AccessToken =
-        either {
-            ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "Introspected AccessToken/RefreshToken already contains ClientStatus" }
-            ensure(OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
-                "$id is configured NOT to include ClientStatus in introspected AccessToken/RefreshToken"
-            }
-
-            val formData = checkNotNull(session.context.httpRequest.decodedFormParameters)
-            val introspectedToken = checkNotNull(formData.getFirst(Constants.TOKEN))
-
-            val clientStatusNotes = ensureNotNull(session.singleUseObjects().get("$introspectedToken.${TS3.EUDI_CLIENT_STATUS_CLAIM}")) {
-                "NO ClientStatus associated with introspected AccessToken/RefreshToken in Infinispan"
-            }
-            val clientStatus = Json.decodeFromString<ClientStatus>(checkNotNull(clientStatusNotes[TS3.EUDI_CLIENT_STATUS_CLAIM]))
-
-            logger.info("Adding ClientStatus to introspected AccessToken/RefreshToken")
-            token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
-
-            token
-        }.getOrElse {
-            logger.warn("ClientStatus NOT added to introspected AccessToken/RefreshToken: {}", it)
-            token
+    ): AccessToken = either {
+        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "Introspected AccessToken/RefreshToken already contains ClientStatus" }
+        ensure(OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
+            "$id is configured NOT to include ClientStatus in introspected AccessToken/RefreshToken"
         }
+
+        val formData = checkNotNull(session.context.httpRequest.decodedFormParameters)
+        val introspectedToken = checkNotNull(formData.getFirst(Constants.TOKEN))
+
+        val clientStatusNotes = ensureNotNull(session.singleUseObjects().get(introspectedToken.toInfinispanKey())) {
+            "NO ClientStatus associated with introspected AccessToken/RefreshToken in Infinispan"
+        }
+        val clientStatus = Json.decodeFromString<ClientStatus>(checkNotNull(clientStatusNotes[CLIENT_STATUS_NOTE_KEY]))
+
+        LOGGER.info("Adding ClientStatus to introspected AccessToken/RefreshToken")
+        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+
+        token
+    }.getOrElse {
+        LOGGER.warn("ClientStatus NOT added to introspected AccessToken/RefreshToken: {}", it)
+        token
+    }
 }
 
-private fun ClientStatus.toJackson(): Map<String, Any> =
-    JsonSerialization.readValue(Json.encodeToString(this), object : TypeReference<Map<String, Any>>() {})
+private fun ClientStatus.toJackson(): Map<String, Any> = JsonSerialization.readValue(Json.encodeToString(this), object : TypeReference<Map<String, Any>>() {})
+
+private const val CLIENT_STATUS_NOTE_KEY = TS3.EUDI_CLIENT_STATUS_CLAIM
+
+private fun String.toInfinispanKey(): String = "$this.${CLIENT_STATUS_NOTE_KEY}"
+
+context(session: KeycloakSession, clock: Clock)
+private fun ClientStatus.associateWithTokensOf(accessTokenResponse: AccessTokenResponse) {
+    val clientStatusExpiresIn = expiresAt - clock.now()
+
+    val accessToken = accessTokenResponse.token
+    if (null != accessToken) {
+        LOGGER.debug("Associating AccessToken with ClientStatus in Infinispan")
+        val lifespan =
+            if (accessTokenResponse.expiresIn > 0L) {
+                accessTokenResponse.expiresIn.seconds
+            } else {
+                clientStatusExpiresIn
+            }
+        session.singleUseObjects().put(
+            accessToken.toInfinispanKey(),
+            lifespan.inWholeSeconds,
+            mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
+        )
+    }
+
+    val refreshToken = accessTokenResponse.refreshToken
+    if (null != refreshToken) {
+        LOGGER.debug("Associating RefreshToken with ClientStatus in Infinispan")
+        val lifespan =
+            if (accessTokenResponse.refreshExpiresIn > 0L) {
+                accessTokenResponse.refreshExpiresIn.seconds
+            } else {
+                clientStatusExpiresIn
+            }
+        session.singleUseObjects().put(
+            refreshToken.toInfinispanKey(),
+            lifespan.inWholeSeconds,
+            mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
+        )
+    }
+}
