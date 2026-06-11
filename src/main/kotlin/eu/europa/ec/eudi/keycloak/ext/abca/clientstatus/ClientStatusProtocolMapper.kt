@@ -19,6 +19,7 @@ import arrow.core.getOrElse
 import arrow.core.raise.either
 import arrow.core.raise.ensure
 import arrow.core.raise.ensureNotNull
+import arrow.core.raise.option
 import com.fasterxml.jackson.core.type.TypeReference
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
@@ -92,7 +93,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
     ): AccessTokenResponse = either {
         val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
         context(session, clock) {
-            clientStatus.associateWithTokensOf(accessTokenResponse)
+            clientStatus.associateWithAccessTokenOf(accessTokenResponse)
         }
 
         ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
@@ -146,38 +147,25 @@ private const val CLIENT_STATUS_NOTE_KEY = TS3.EUDI_CLIENT_STATUS_CLAIM
 private fun String.toInfinispanKey(): String = "$this.${CLIENT_STATUS_NOTE_KEY}"
 
 context(session: KeycloakSession, clock: Clock)
-private fun ClientStatus.associateWithTokensOf(accessTokenResponse: AccessTokenResponse) {
-    val clientStatusExpiresIn = expiresAt - clock.now()
+private fun ClientStatus.associateWithAccessTokenOf(accessTokenResponse: AccessTokenResponse): Unit = either {
+    val accessToken = ensureNotNull(accessTokenResponse.token) { "No AccessToken found in AccessTokenResponse" }
+    LOGGER.debug("Associating AccessToken with ClientStatus in Infinispan")
 
-    val accessToken = accessTokenResponse.token
-    if (null != accessToken) {
-        LOGGER.debug("Associating AccessToken with ClientStatus in Infinispan")
-        val lifespan =
-            if (accessTokenResponse.expiresIn > 0L) {
-                accessTokenResponse.expiresIn.seconds
-            } else {
-                clientStatusExpiresIn
-            }
-        session.singleUseObjects().put(
-            accessToken.toInfinispanKey(),
-            lifespan.inWholeSeconds,
-            mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
-        )
+    val lifespan = option {
+        val lifespan = accessTokenResponse.expiresIn.seconds
+        ensure(lifespan.isPositive())
+        lifespan
+    }.getOrElse {
+        val clientStatusExpiresIn = expiresAt - clock.now()
+        clientStatusExpiresIn
     }
+    check(lifespan.isPositive())
 
-    val refreshToken = accessTokenResponse.refreshToken
-    if (null != refreshToken) {
-        LOGGER.debug("Associating RefreshToken with ClientStatus in Infinispan")
-        val lifespan =
-            if (accessTokenResponse.refreshExpiresIn > 0L) {
-                accessTokenResponse.refreshExpiresIn.seconds
-            } else {
-                clientStatusExpiresIn
-            }
-        session.singleUseObjects().put(
-            refreshToken.toInfinispanKey(),
-            lifespan.inWholeSeconds,
-            mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
-        )
-    }
+    session.singleUseObjects().put(
+        accessToken.toInfinispanKey(),
+        lifespan.inWholeSeconds,
+        mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
+    )
+}.getOrElse {
+    LOGGER.warn("ClientStatus NOT associated with AccessToken of AccessTokenResponse: {}", it)
 }
