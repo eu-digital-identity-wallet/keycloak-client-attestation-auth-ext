@@ -164,7 +164,7 @@ private fun ClientStatus.associateWithAccessTokenOf(accessTokenResponse: AccessT
     session.singleUseObjects().put(
         accessToken.toInfinispanKey(),
         lifespan.inWholeSeconds,
-        mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this)),
+        mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this@associateWithAccessTokenOf)),
     )
 }.getOrElse {
     LOGGER.warn("ClientStatus NOT associated with AccessToken of AccessTokenResponse: {}", it)
