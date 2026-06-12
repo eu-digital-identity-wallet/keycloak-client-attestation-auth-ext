@@ -55,7 +55,7 @@ object TS3 {
 }
 
 object RFC7519 {
-    const val EXP_CLAIM = "exp"
+    const val EXPIRES_AT_CLAIM = "exp"
 }
 
 object OpenId4VCI {

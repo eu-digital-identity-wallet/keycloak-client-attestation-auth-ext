@@ -16,15 +16,11 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
 import arrow.core.NonEmptyList
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.expectSuccess
-import io.ktor.client.request.accept
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.Url
-import io.ktor.http.contentType
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.plugins.*
+import io.ktor.client.request.*
+import io.ktor.http.*
 import java.security.cert.X509Certificate
 
 internal suspend fun HttpClient.validateTrust(serviceUrl: Url, x5c: NonEmptyList<X509Certificate>, verificationContext: VerificationContext): TrustResult {

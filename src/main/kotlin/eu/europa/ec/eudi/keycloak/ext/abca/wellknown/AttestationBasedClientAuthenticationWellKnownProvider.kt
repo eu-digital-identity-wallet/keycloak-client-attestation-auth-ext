@@ -64,9 +64,7 @@ class AttestationBasedClientAuthenticationWellKnownProvider(
     }
 
     companion object {
-        fun challengeEndpoint(context: KeycloakContext): String {
-            return issuer(context) + "/challenge"
-        }
+        fun challengeEndpoint(context: KeycloakContext): String = issuer(context) + "/challenge"
 
         /**
          * Return the url of the issuer.
@@ -80,8 +78,7 @@ class AttestationBasedClientAuthenticationWellKnownProvider(
         }
     }
 }
-private fun concatPathLocal(base: String, segment: String): String =
-    if (base.endsWith("/")) "$base$segment" else "$base/$segment"
+private fun concatPathLocal(base: String, segment: String): String = if (base.endsWith("/")) "$base$segment" else "$base/$segment"
 
 private fun addSupportedAuthMethod(map: MutableMap<String, Any?>, key: String, method: String) {
     val supportedMethods = map[key]?.toMutableStringSet() ?: mutableSetOf()
