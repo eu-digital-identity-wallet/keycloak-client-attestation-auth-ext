@@ -137,7 +137,7 @@ value class ClientAttestationPoPJWT private constructor(val jwt: SignedJWT) {
         get() = jwt.jwtClaimsSet.audience ?: emptyList()
 
     val challenge: Challenge?
-        get() = jwt.jwtClaimsSet.getStringClaim(AttestationBasedClientAuthentication.CHALLENGE_CLAIM)?.let { Challenge(it) }
+        get() = jwt.jwtClaimsSet.getStringClaim(AttestationBasedClientAuthentication.CHALLENGE_CLAIM)?.let { Challenge.ofOrNull(it) }
 
     companion object {
         operator fun invoke(jwt: String): Result<ClientAttestationPoPJWT> = result {

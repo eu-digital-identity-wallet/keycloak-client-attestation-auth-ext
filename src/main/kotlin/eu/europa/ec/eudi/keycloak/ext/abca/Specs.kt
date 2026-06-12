@@ -23,6 +23,7 @@ object AttestationBasedClientAuthentication {
     const val CLIENT_ATTESTATION_POP_JWT_TYPE = "oauth-client-attestation-pop+jwt"
     const val HEADER_CLIENT_ATTESTATION = "OAuth-Client-Attestation"
     const val HEADER_CLIENT_ATTESTATION_POP = "OAuth-Client-Attestation-PoP"
+    const val HEADER_CLIENT_ATTESTATION_CHALLENGE = "OAuth-Client-Attestation-Challenge"
 
     // client attestation claims
     const val CNF_CLAIM = "cnf"
