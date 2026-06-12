@@ -16,8 +16,8 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
 import arrow.core.NonEmptyList
-import io.ktor.client.HttpClient
-import io.ktor.http.Url
+import io.ktor.client.*
+import io.ktor.http.*
 import java.security.cert.X509Certificate
 
 fun interface IsClientAttestationIssuerTrusted {
