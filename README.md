@@ -148,7 +148,7 @@ The following `keycloak.conf` properties (or the equivalent command line argumen
 
 Property: `spi-challenge-handler--default--bytes`    
 Description: The number of bytes a Challenge is composed of.  
-Format: Unsigned Integer.
+Format: Unsigned Integer.  
 Minimum value: 32  
 Default value: 64  
 
