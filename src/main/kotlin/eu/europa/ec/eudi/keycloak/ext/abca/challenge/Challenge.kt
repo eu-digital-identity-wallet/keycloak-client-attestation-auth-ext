@@ -15,37 +15,22 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.challenge
 
-import eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProvider
-import org.keycloak.models.KeycloakSession
-import org.keycloak.protocol.oid4vc.issuance.keybinding.CNonceHandler
-import org.keycloak.protocol.oid4vc.issuance.keybinding.JwtCNonceHandler
+import kotlinx.serialization.Serializable
 
+@Serializable
 @JvmInline
-value class Challenge(val value: String) {
+value class Challenge private constructor(val value: String) {
     init {
-        require(value.isNotBlank()) { "Challenge must not be blank" }
+        check(value.isNotBlank())
     }
+
+    override fun toString(): String = value
 
     companion object {
-        operator fun invoke(session: KeycloakSession): Challenge = Challenge(session.challenge())
+        fun ofOrNull(value: String): Challenge? = value.takeIf { it.isNotBlank() }?.let(::Challenge)
+        fun of(value: String): Challenge = ofOrNull(value) ?: throw IllegalArgumentException("value cannot be blank")
     }
-
-    fun verify(session: KeycloakSession) = session.verifyChallenge(value)
 }
 
-internal fun KeycloakSession.challenge(): String = cNonceHandler().buildCNonce(
-    listOf(audience()),
-    mapOf(JwtCNonceHandler.SOURCE_ENDPOINT to sourceEndpoint()),
-)
-
-internal fun KeycloakSession.verifyChallenge(challenge: String) {
-    cNonceHandler().verifyCNonce(
-        challenge,
-        listOf(audience()),
-        mapOf(JwtCNonceHandler.SOURCE_ENDPOINT to sourceEndpoint()),
-    )
-}
-
-internal fun KeycloakSession.sourceEndpoint() = AttestationBasedClientAuthenticationWellKnownProvider.challengeEndpoint(context)
-internal fun KeycloakSession.audience() = AttestationBasedClientAuthenticationWellKnownProvider.issuer(context)
-internal fun KeycloakSession.cNonceHandler() = getProvider(CNonceHandler::class.java) ?: error("No CNonceHandler found")
+fun String.toChallengeOrNull(): Challenge? = Challenge.ofOrNull(this)
+fun String.toChallenge(): Challenge = Challenge.of(this)

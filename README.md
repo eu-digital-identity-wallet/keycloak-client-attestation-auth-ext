@@ -41,87 +41,89 @@ the [EUDI Wallet Reference Implementation project description](https://github.co
 
 ## Overview
 
-This project provides three Keycloak extensions implementing parts of the OAuth 2.0 Attestation‑Based Client Authentication draft (draft‑ietf‑oauth‑attestation‑based‑client‑auth‑07):
-  1) A realm‑level REST endpoint that issues a short‑lived cryptographic challenge ("nonce").
-  2) A Keycloak Client Authenticator that verifies client attestation headers and a proof‑of‑possession (PoP) JWT.
-  3) A Well‑Known provider that augments the OIDC discovery document with ABCA metadata (challenge endpoint URL and supported algorithms).
+This project provides the following Keycloak Providers implementing parts of the OAuth 2.0 Attestation‑Based Client Authentication draft (draft‑ietf‑oauth‑attestation‑based‑client‑auth‑07):
+  1) A handler (Provider) for generating and validating short-lived cryptographic challenges. 
+  2) A realm resource that issues short‑lived cryptographic challenges.
+  3) A Client Authenticator that authenticates clients using Client Attestation and Client Attestation PoP HTTP Headers.
+  4) A Well‑Known Provider that augments the OIDC discovery document with ABCA metadata (challenge endpoint URL and supported algorithms).
+  5) A Protocol Mapper that maps the `client_status` claim of the Client Attestation to the Access Token, Access Token Response, or Introspection Endpoint Response.
 
 ## What’s in the box
-- Challenge endpoint implementation: RealmResourceProvider + RealmResourceProviderFactory (registered via META‑INF/services).
-- Client authenticator: Parses OAuth‑Client‑Attestation and OAuth‑Client‑Attestation‑PoP headers, loads trusted certificates from a LOTL‑based trust store, validates PoP JWT signature, and wires into Keycloak’s client auth flow.
-- Well‑known augmentation: Adds challenge_endpoint and supported algorithm lists to the OIDC discovery document.
-- Client Status wallet mapper: Maps client status to access token to be able to be accessed by the receiver.
+- Challenge handler: Provider + ProviderFactory + SPI (registered via META‑INF/services).
+- Challenge endpoint: RealmResource + RealmResourceProvider + RealmResourceProviderFactory (registered via META‑INF/services).
+- Client authenticator: ClientAuthenticator + ClientAuthenticatorFactory (registered via META‑INF/services); Parses OAuth‑Client‑Attestation and OAuth‑Client‑Attestation‑PoP HTTP Headers, verifies the Client Attestation issuer is trusted, validates Client Attestation PoP signature, validates Challenge.
+- Well‑Known augmentation: WellKnownProvider + WellKnownProviderFactory (registered via META‑INF/services); Adds `challenge_endpoint`, `client_attestation_signing_alg_values_supported`, and `client_attestation_pop_signing_alg_values_supported`, and augments `token_endpoint_auth_methods_supported` to the OIDC discovery document.
+- Client Status Protocol Mapper: ProtocolMapper (registered via META‑INF/services); Adds `client_status` to Access Token, Access Token Response, Introspection Endpoint Response based on its configuration.
 
 ## Stack / Tooling
 - Language: Kotlin (JVM)
-- Runtime target: Java 17
-- Identity platform: Keycloak 26.3.4
+- Runtime target: Java 21
+- Identity platform: Keycloak 26.6.2
 - Build: Gradle (Kotlin DSL) with Gradle Version Catalog
 - Lint/format: Spotless + ktlint
 - JWT/JWK: Nimbus JOSE + JWT
 
 ## Requirements
-- JDK 17 (Adoptium/Temurin recommended; build config sets vendor = ADOPTIUM)
+- JDK 21 (Adoptium/Temurin recommended; build config sets vendor = ADOPTIUM)
 - Gradle wrapper (included): use ./gradlew.bat on Windows
-- Keycloak 26.3.4 server to deploy the resulting provider JAR(s)
+- Keycloak 26.6.2 server to deploy the resulting provider JAR(s)
 
 ## Setup and Build
 - Format (optional) and build (Windows PowerShell):
   - `./gradlew.bat spotlessApply build`
-- The build task cretes two artifacts:
-  - Regular JAR: `build\libs\<name>-<version>.jar`
-  - Fat/uber JAR: `build\libs\<name>-<version>-all.jar`
+- The build task creates an artifacts that contains all its dependencies shaded into a single JAR: `build\libs\<name>-<version>.jar`
 
 ## Deploy to Keycloak
-- Copy either the regular JAR (plus runtime deps if needed) or the uber JAR into your Keycloak providers directory. Examples:
+- Copy either the generated JAR into your Keycloak `providers` directory. Examples:
   - Linux container: /opt/keycloak/providers
   - Windows distribution: <keycloak_install>\providers
 - Restart Keycloak.
-- This repository includes META‑INF/microprofile-config.properties with:
-  - spi-realm-restapi-extension-enabled=true
-  This enables the realm‑restapi‑extension SPI which Keycloak marks as internal.
 
 ## Entry points (SPIs)
-- Realm REST extension: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeEndpointProviderFactory
-- Well‑Known provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
-- Client authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationClientAuthenticatorFactory
+- Challenge handler: 
+    - src\main\resources\META-INF\services\org.keycloak.provider.Spi -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandlerSpi
+    - src\main\resources\META-INF\services\eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandlerProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.DefaultChallengeHandlerProviderFactory
+- Realm Resource: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeRealmResourceProviderFactory
+- Client Authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationBasedClientAuthenticatorFactory
+- Well‑Known Provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
+- Client Status Protocol Mapper: src\main\resources\META-INF\services\org.keycloak.protocol.ProtocolMapper -> eu.europa.ec.eudi.keycloak.ext.abca.clientstatus.ClientStatusProtocolMapper
 
-## How to enable WalletStatusMapper
-1.  Go to the desired client from the `Clients`
+## How to enable ClientStatusProtocolMapper
+1. Go to the desired client from the `Clients`
 2. In `Client scopes` chose the desired client scope ex: `eudiw-abca-dedicated`
 3. Choose `Add mapper` and select `By Configuration`
-4. Select `Client Status Mapper` and give it a name ex: `client-status-mapper`
-5. Click `Save`
+4. Select `Client Status Protocol Mapper` and give it a name ex: `client_status`
+5. Configure the mapper
+6. Click `Save`
 
 ## Usage
 - Well‑known discovery augmentation:
   - The OIDC discovery document will include:
-    - challenge_endpoint: URL of the challenge endpoint (example: {issuer}/challenge)
-    - token_endpoint_auth_methods_supported includes attest_jwt_client_auth
-    - client_attestation_signing_alg_values_supported: [ES256, ES384, ES512]
-    - client_attestation_pop_signing_alg_values_supported: [ES256, ES384, ES512]
+    - `challenge_endpoint`: URL of the challenge endpoint (example: {issuer}/challenge)
+    - `token_endpoint_auth_methods_supported` adds `attest_jwt_client_auth`
+    - `client_attestation_signing_alg_values_supported`: [ES256, ES384, ES512]
+    - `client_attestation_pop_signing_alg_values_supported`: [ES256, ES384, ES512]
 - Challenge endpoint URL:
-  - Mounted at: https://<host>/realms/<realm>/challenge
-  - Also advertised by well‑known as: {issuer}/challenge
+  - Available at: https://<host>/realms/<realm>/challenge
 - Example request:
   - GET https://<host>/realms/<realm>/challenge
 - Current response (per code):
   {
-    "attestation_challenge": "<base64url>"
+    "attestation_challenge": "value"
   }
   - Notes:
-    - The current implementation does NOT include expires_in or issued_at. TODO: Add TTL/issued_at to match the draft example if required by clients.
     - Response headers set Cache-Control: no-store, no-cache and Pragma: no-cache.
 
 ## Client Authenticator
 - Headers expected by the authenticator (per draft):
-  - OAuth-Client-Attestation: a signed JWT containing client metadata and a cnf.jwk binding key
-  - OAuth-Client-Attestation-PoP: a PoP JWT signed by the cnf.jwk key
+  - `OAuth-Client-Attestation`: a signed JWT containing client metadata and a cnf.jwk binding key
+  - `OAuth-Client-Attestation-PoP`: a PoP JWT signed by the `cnf.jwk` key
 - Processing flow (high level):
   - Parses Client Attestation JWT; extracts sub (client_id) and cnf.jwk.
   - Verify the Client Attestation JWT signature using the key of the first certificate in the x5c claim.
   - Verify the Issuer of the Client Attestation JWT is trusted.
-  - Verifies the PoP JWT signature with the public key from cnf.jwk (currently EC algorithms configured; EdDSA support is a TODO).
+  - Verifies the PoP JWT signature with the public key from cnf.jwk.
+  - Verifies `client_status` is valid.
   - Emits Keycloak events and returns OAuth error invalid_client_attestation on failures.
 
 ## Trust Verification
@@ -141,22 +143,20 @@ Authentication Flow level, or the OAuth 2.0 Client level.
 - ./gradlew.bat spotlessApply — Applies ktlint formatting via Spotless.
 
 ## Environment and Configuration
-- MicroProfile Config (bundled in JAR):
-  - src\main\resources\META-INF\microprofile-config.properties
-  - spi-realm-restapi-extension-enabled=true
-- Keycloak runtime flags: None required specifically for this extension beyond standard server configuration.
 
-## Project Structure
-- build.gradle.kts — Gradle build (Kotlin DSL); defines dependencies, Kotlin/JVM toolchain, Spotless, shadowJar task, maven publish, dokka.
-- gradle\libs.versions.toml — Version catalog for dependencies and plugins.
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\Spec.kt — Shared constants (e.g., header names, error codes).
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\challenge\* — Challenge endpoint and provider factory.
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\auth\* — Client authenticator and factory.
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\trust\* — Trusted Instance Attestation.
-- src\main\kotlin\eu\europa\ec\eudi\keycloak\ext\abca\wellknown\* — Well‑known augmentation provider and factory.
-- src\main\resources\META-INF\services\* — Service provider registrations.
-- src\main\resources\META-INF\microprofile-config.properties — Enables realm REST extension SPI.
-- src\test\kotlin\... — Tests.
+The following `keycloak.conf` properties (or the equivalent command line arguments, or environment variables) can be used to configure the providers:
+
+Property: `spi-challenge-handler--default--bytes`    
+Description: The number of bytes a Challenge is composed of.  
+Format: Unsigned Integer.  
+Minimum value: 32  
+Default value: 64  
+
+Property: `spi-challenge-handler--default--lifespan`    
+Description: Duration a Challenge is valid for.  
+Format: ISO 8601 formatted Duration.  
+Maximum value: PT15M  
+Default value: PT5M  
 
 ## How to contribute
 
