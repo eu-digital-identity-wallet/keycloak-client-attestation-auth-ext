@@ -15,10 +15,19 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.util
 
+import com.nimbusds.jose.JWSAlgorithm
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
+import eu.europa.ec.eudi.keycloak.ext.abca.util.context.isEnabled
+import org.keycloak.crypto.SignatureProvider
 import org.keycloak.models.KeycloakSession
+import org.keycloak.provider.Provider
 
 internal var KeycloakSession.clientStatus: ClientStatus?
     get() = getAttribute(TS3.EUDI_CLIENT_STATUS_CLAIM, ClientStatus::class.java)
     set(value) = setAttribute(TS3.EUDI_CLIENT_STATUS_CLAIM, value)
+
+inline fun <reified P : Provider> KeycloakSession.isEnabled(id: String): Boolean = null != keycloakSessionFactory.getProviderFactory(P::class.java, id) &&
+    null != getProvider(P::class.java, id)
+
+fun KeycloakSession.isEnabled(algorithm: JWSAlgorithm): Boolean = isEnabled<SignatureProvider>(algorithm.name)

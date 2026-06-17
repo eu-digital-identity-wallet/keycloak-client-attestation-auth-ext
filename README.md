@@ -52,7 +52,7 @@ This project provides the following Keycloak Providers implementing parts of the
 - Challenge handler: Provider + ProviderFactory + SPI (registered via META‑INF/services).
 - Challenge endpoint: RealmResource + RealmResourceProvider + RealmResourceProviderFactory (registered via META‑INF/services).
 - Client authenticator: ClientAuthenticator + ClientAuthenticatorFactory (registered via META‑INF/services); Parses OAuth‑Client‑Attestation and OAuth‑Client‑Attestation‑PoP HTTP Headers, verifies the Client Attestation issuer is trusted, validates Client Attestation PoP signature, validates Challenge.
-- Well‑Known augmentation: WellKnownProvider + WellKnownProviderFactory (registered via META‑INF/services); Adds `challenge_endpoint`, `client_attestation_signing_alg_values_supported`, and `client_attestation_pop_signing_alg_values_supported`, and augments `token_endpoint_auth_methods_supported` to the OIDC discovery document.
+- Well‑Known augmentation: WellKnownProvider + WellKnownProviderFactory (registered via META‑INF/services); Adds `challenge_endpoint`, `client_attestation_signing_alg_values_supported`, and `client_attestation_pop_signing_alg_values_supported` to the OIDC discovery document.
 - Client Status Protocol Mapper: ProtocolMapper (registered via META‑INF/services); Adds `client_status` to Access Token, Access Token Response, Introspection Endpoint Response based on its configuration.
 
 ## Stack / Tooling
@@ -85,7 +85,9 @@ This project provides the following Keycloak Providers implementing parts of the
     - src\main\resources\META-INF\services\eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandlerProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.DefaultChallengeHandlerProviderFactory
 - Realm Resource: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeRealmResourceProviderFactory
 - Client Authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationBasedClientAuthenticatorFactory
-- Well‑Known Provider: src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
+- Well‑Known Provider: 
+    - src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OIDCWellKnownProviderFactory
+    - src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OAuth2WellKnownProviderFactory
 - Client Status Protocol Mapper: src\main\resources\META-INF\services\org.keycloak.protocol.ProtocolMapper -> eu.europa.ec.eudi.keycloak.ext.abca.clientstatus.ClientStatusProtocolMapper
 
 ## How to enable ClientStatusProtocolMapper
@@ -99,14 +101,13 @@ This project provides the following Keycloak Providers implementing parts of the
 ## Usage
 - Well‑known discovery augmentation:
   - The OIDC discovery document will include:
-    - `challenge_endpoint`: URL of the challenge endpoint (example: {issuer}/challenge)
-    - `token_endpoint_auth_methods_supported` adds `attest_jwt_client_auth`
+    - `challenge_endpoint`: URL of the challenge endpoint (i.e.: {baseUrl}/realms/{realm}/challenge)
     - `client_attestation_signing_alg_values_supported`: [ES256, ES384, ES512]
     - `client_attestation_pop_signing_alg_values_supported`: [ES256, ES384, ES512]
 - Challenge endpoint URL:
-  - Available at: https://<host>/realms/<realm>/challenge
+  - Available at: https://<baseUrl>/realms/<realm>/challenge
 - Example request:
-  - GET https://<host>/realms/<realm>/challenge
+  - POST https://<host>/realms/<realm>/challenge
 - Current response (per code):
   {
     "attestation_challenge": "value"
