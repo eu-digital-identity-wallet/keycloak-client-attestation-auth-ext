@@ -17,28 +17,29 @@ package eu.europa.ec.eudi.keycloak.ext.abca
 
 import com.nimbusds.jose.JWSAlgorithm
 
+/**
+ * [OAuth 2.0 Attestation-Based Client Authentication](https://www.ietf.org/archive/id/draft-ietf-oauth-attestation-based-client-auth-07.html)
+ */
 object AttestationBasedClientAuthentication {
+    // Client authentication method
     const val AUTHENTICATION_METHOD = "attest_jwt_client_auth"
+
+    // JWT types
     const val CLIENT_ATTESTATION_JWT_TYPE = "oauth-client-attestation+jwt"
     const val CLIENT_ATTESTATION_POP_JWT_TYPE = "oauth-client-attestation-pop+jwt"
-    const val HEADER_CLIENT_ATTESTATION = "OAuth-Client-Attestation"
-    const val HEADER_CLIENT_ATTESTATION_POP = "OAuth-Client-Attestation-PoP"
-    const val HEADER_CLIENT_ATTESTATION_CHALLENGE = "OAuth-Client-Attestation-Challenge"
 
-    // client attestation claims
-    const val CNF_CLAIM = "cnf"
-    const val CNF_JWK_CLAIM = "jwk"
-    const val STATUS_CLAIM = "status"
+    // HTTP Headers
+    const val CLIENT_ATTESTATION_HEADER = "OAuth-Client-Attestation"
+    const val CLIENT_ATTESTATION_POP_HEADER = "OAuth-Client-Attestation-PoP"
+    const val CLIENT_ATTESTATION_CHALLENGE_HEADER = "OAuth-Client-Attestation-Challenge"
 
-    // client attestation pop claims
+    // Claims
     const val CHALLENGE_CLAIM = "challenge"
+    const val ATTESTATION_CHALLENGE_CLAIM = "attestation_challenge"
 
-    // challenge
-    const val ATTESTATION_CHALLENGE = "attestation_challenge"
-
-    // metadata
-    const val CLIENT_ATTESTATION_SIGNING_ALG_VALUES_SUPPORTED = "client_attestation_signing_alg_values_supported"
-    const val CLIENT_ATTESTATION_POP_SIGNING_ALG_VALUES_SUPPORTED = "client_attestation_pop_signing_alg_values_supported"
+    // OAuth2 Authorization Server Metadata
+    const val CLIENT_ATTESTATION_SUPPORTED_SIGNING_ALGORITHMS = "client_attestation_signing_alg_values_supported"
+    const val CLIENT_ATTESTATION_POP_SUPPORTED_SIGNING_ALGORITHMS = "client_attestation_pop_signing_alg_values_supported"
     const val CHALLENGE_ENDPOINT = "challenge_endpoint"
 
     // Errors
@@ -47,6 +48,9 @@ object AttestationBasedClientAuthentication {
     const val INVALID_CLIENT_ATTESTATION_ERROR = "invalid_client_attestation"
 }
 
+/**
+ * [Specification of Wallet Unit Attestations (WUA) used in issuance of PID and Attestations](https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts3-wallet-unit-attestation.md)
+ */
 object TS3 {
     const val EUDI_WALLET_VERSION_CLAIM = "wallet_version"
     const val EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
@@ -55,18 +59,36 @@ object TS3 {
     val ALLOWED_ALGORITHMS = setOf(JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512)
 }
 
+/**
+ * [SON Web Token (JWT)](https://www.rfc-editor.org/info/rfc7519/)
+ */
 object RFC7519 {
     const val EXPIRES_AT_CLAIM = "exp"
 }
 
+/**
+ * [OpenID for Verifiable Credential Issuance 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+ */
 object OpenId4VCI {
     const val WALLET_NAME_CLAIM = "wallet_name"
     const val WALLET_LINK_CLAIM = "wallet_link"
 }
 
+/**
+ * [Token Status List (TSL)](https://www.ietf.org/archive/id/draft-ietf-oauth-status-list-12.html)
+ */
 object TokenStatusList {
     const val STATUS_CLAIM = "status"
+
     const val STATUS_LIST_CLAIM = "status_list"
-    const val STATUS_LIST_IDX_CLAIM = "idx"
-    const val STATUS_LIST_URI_CLAIM = "uri"
+    const val INDEX_CLAIM = "idx"
+    const val URI_CLAIM = "uri"
+}
+
+/**
+ * [Proof-of-Possession Key Semantics for JSON Web Tokens (JWTs)](https://datatracker.ietf.org/doc/html/rfc7800)
+ */
+object RFC7800 {
+    const val CONFIRMATION_CLAIM = "cnf"
+    const val JWK_METHOD_CLAIM = "jwk"
 }

@@ -50,7 +50,7 @@ interface ChallengeRealmResource {
 
 @Serializable
 private data class ChallengeResponse(
-    @Required @SerialName(AttestationBasedClientAuthentication.ATTESTATION_CHALLENGE) val challenge: Challenge,
+    @Required @SerialName(AttestationBasedClientAuthentication.ATTESTATION_CHALLENGE_CLAIM) val challenge: Challenge,
 )
 
 class DefaultChallengeRealmResource(
