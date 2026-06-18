@@ -48,8 +48,8 @@ private val log = LoggerFactory.getLogger(Status::class.java)
 
 @Serializable
 data class StatusList(
-    @SerialName(TokenStatusList.STATUS_LIST_IDX_CLAIM) @Required val index: Int,
-    @SerialName(TokenStatusList.STATUS_LIST_URI_CLAIM) @Required val uri: String,
+    @SerialName(TokenStatusList.INDEX_CLAIM) @Required val index: Int,
+    @SerialName(TokenStatusList.URI_CLAIM) @Required val uri: String,
 )
 
 @Serializable

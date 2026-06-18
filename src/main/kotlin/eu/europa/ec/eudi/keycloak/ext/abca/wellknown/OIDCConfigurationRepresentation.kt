@@ -24,10 +24,10 @@ class OIDCConfigurationRepresentation(
     @JsonProperty(AttestationBasedClientAuthentication.CHALLENGE_ENDPOINT)
     var challengeEndpoint: String? = null,
 
-    @JsonProperty(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SIGNING_ALG_VALUES_SUPPORTED)
+    @JsonProperty(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SUPPORTED_SIGNING_ALGORITHMS)
     var clientAttestationSigningAlgValuesSupported: List<String>? = null,
 
-    @JsonProperty(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SIGNING_ALG_VALUES_SUPPORTED)
+    @JsonProperty(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SUPPORTED_SIGNING_ALGORITHMS)
     var clientAttestationPoPSigningAlgValuesSupported: List<String>? = null,
 ) : KeycloakOIDCConfigurationRepresentation()
 

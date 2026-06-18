@@ -34,6 +34,7 @@ import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
 import eu.europa.ec.eudi.keycloak.ext.abca.*
+import eu.europa.ec.eudi.keycloak.ext.abca.RFC7800
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.InstantEpochSecondsSerializer
 import kotlinx.serialization.Required
@@ -237,14 +238,14 @@ private fun JWTClaimsSet.walletName(): Result<String> = runCatching {
     requireNotNull(getStringClaim(OpenId4VCI.WALLET_NAME_CLAIM))
 }
 
-private fun JWTClaimsSet.cnf(): JsonObject = requireNotNull(getJSONObjectClaim(AttestationBasedClientAuthentication.CNF_CLAIM)).toJsonObject()
+private fun JWTClaimsSet.cnf(): JsonObject = requireNotNull(getJSONObjectClaim(RFC7800.CONFIRMATION_CLAIM)).toJsonObject()
 
-private fun JsonObject.cnfJwk(): JWK = requireNotNull(this[AttestationBasedClientAuthentication.CNF_JWK_CLAIM]).let {
+private fun JsonObject.cnfJwk(): JWK = requireNotNull(this[RFC7800.JWK_METHOD_CLAIM]).let {
     val jsonString = json.encodeToString(it)
     JWK.parse(jsonString)
 }
 
-private fun JWTClaimsSet.status(): Status? = getJSONObjectClaim(AttestationBasedClientAuthentication.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
+private fun JWTClaimsSet.status(): Status? = getJSONObjectClaim(TokenStatusList.STATUS_CLAIM)?.toJsonObject()?.let { jsonObj ->
     runCatching {
         json.decodeFromString(Status.serializer(), json.encodeToString(jsonObj))
     }.getOrNull()

@@ -151,7 +151,7 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationJWT {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION]) {
+    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER]) {
         ClientAuthenticationFailure.missingClientAttestationJWT()
     }
     return ensureNotNull(ClientAttestationJWT(header).getOrNull()) {
@@ -160,7 +160,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationPoPJWT {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_POP]) {
+    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER]) {
         ClientAuthenticationFailure.missingClientAttestationPoPJWT()
     }
     return ensureNotNull(ClientAttestationPoPJWT(header).getOrNull()) {
@@ -438,7 +438,7 @@ private data class ClientAuthenticationFailure(
             "Client Attestation PoP JWT is missing Challenge",
             "client_attestation_pop_jwt_missing_challenge",
             mapOf(
-                AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_CHALLENGE to challenge.value,
+                AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to challenge.value,
             ),
         )
 
@@ -449,7 +449,7 @@ private data class ClientAuthenticationFailure(
             "Client Attestation PoP JWT Challenge is not valid",
             "client_attestation_pop_jwt_challenge_not_valid",
             mapOf(
-                AttestationBasedClientAuthentication.HEADER_CLIENT_ATTESTATION_CHALLENGE to error.challenge.value,
+                AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to error.challenge.value,
             ),
         )
     }
