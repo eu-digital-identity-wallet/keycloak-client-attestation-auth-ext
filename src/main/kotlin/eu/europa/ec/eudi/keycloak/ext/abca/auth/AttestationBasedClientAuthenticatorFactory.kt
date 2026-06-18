@@ -68,10 +68,7 @@ private const val ID = "abca-draft07"
 
 private val LOG = LoggerFactory.getLogger(AttestationBasedClientAuthenticatorFactory::class.java)
 
-class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpClient) : AbstractClientAuthenticator() {
-
-    constructor() : this(createHttpClient())
-
+class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpClient = createHttpClient()) : AbstractClientAuthenticator() {
     init {
         LOG.info("Initializing AttestationBasedClientAuthenticatorFactory...")
     }

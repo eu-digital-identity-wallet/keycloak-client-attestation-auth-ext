@@ -84,6 +84,7 @@ kotlin {
         freeCompilerArgs.addAll(
             "-Xconsistent-data-class-copy-visibility",
             "-Xcontext-parameters",
+            "-Xannotation-default-target=param-property",
         )
     }
 }

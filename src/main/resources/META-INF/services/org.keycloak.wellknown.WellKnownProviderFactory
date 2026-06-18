@@ -1,1 +1,2 @@
-eu.europa.ec.eudi.keycloak.ext.abca.wellknown.AttestationBasedClientAuthenticationWellKnownProviderFactory
+eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OIDCWellKnownProviderFactory
+eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OAuth2WellKnownProviderFactory
