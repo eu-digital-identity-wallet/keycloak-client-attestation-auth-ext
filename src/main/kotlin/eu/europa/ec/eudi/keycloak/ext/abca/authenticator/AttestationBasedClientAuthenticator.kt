@@ -54,8 +54,6 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
-private const val TRUST_VALIDATOR_SERVICE_URL = "serviceUrl"
-
 class AttestationBasedClientAuthenticator(
     private val httpClient: HttpClient = createHttpClient(),
     private val clock: Clock = Clock.System,
@@ -101,18 +99,17 @@ class AttestationBasedClientAuthenticator(
     }
 }
 
-private class ClientAuthenticatorConfiguration(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
+private class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
 
     val trustValidatorServiceUrl: Url?
-        get() = get(TRUST_VALIDATOR_SERVICE_URL)
-            ?.let { Url.parse(it) }
+        get() = get(TRUST_VALIDATOR_SERVICE_URL)?.let { Url.parse(it) }
 
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
-        ?.takeIf { it.isNotBlank() }
-        ?.trim()
 
     companion object {
-        fun fromContext(context: ClientAuthenticationFlowContext): ClientAuthenticatorConfiguration = ClientAuthenticatorConfiguration(context.client, context.authenticatorConfig)
+        const val TRUST_VALIDATOR_SERVICE_URL = "serviceUrl"
+
+        fun fromContext(context: ClientAuthenticationFlowContext): ClientAuthenticatorConfig = ClientAuthenticatorConfig(context.client, context.authenticatorConfig)
     }
 }
 
@@ -179,7 +176,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerT
     httpClient: HttpClient,
     clientAttestation: ClientAttestation,
 ) {
-    val config = ClientAuthenticatorConfiguration.fromContext(context)
+    val config = ClientAuthenticatorConfig.fromContext(context)
     val isClientAttestationJWTIssuerTrusted =
         config.trustValidatorServiceUrl?.let {
             log.info("Validating Client Attestation JWT Issuer using Trust Validator Service; Service Url: $it")
@@ -216,7 +213,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
 ) {
     val statusListReference = clientStatus.status
 
-    val config = ClientAuthenticatorConfiguration.fromContext(context)
+    val config = ClientAuthenticatorConfig.fromContext(context)
     val trustValidationServiceUrl = config.trustValidatorServiceUrl
 
     val isClientStatusIssuerTrusted = if (null != trustValidationServiceUrl) {
@@ -501,8 +498,8 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
 
     override fun getConfigProperties(): List<ProviderConfigProperty> = ProviderConfigurationBuilder.create()
         .property()
-        .name(TRUST_VALIDATOR_SERVICE_URL)
-        .type(ProviderConfigProperty.URL_TYPE)
+        .name(ClientAuthenticatorConfig.TRUST_VALIDATOR_SERVICE_URL)
+        .type(ProviderConfigProperty.STRING_TYPE)
         .defaultValue(null)
         .label("Trust Validator Service URL")
         .helpText("URL of the Trust Validator Service to use for checking whether the Client Attestation JWT Issuer is trusted or not.")
