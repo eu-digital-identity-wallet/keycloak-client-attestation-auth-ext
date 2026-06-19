@@ -13,17 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.util.context
+package eu.europa.ec.eudi.keycloak.ext.abca.util
 
-import eu.europa.ec.eudi.keycloak.ext.abca.util.isEnabled
-import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
-import org.keycloak.models.KeycloakSession
-import org.keycloak.provider.Provider
+import arrow.core.raise.result
+import com.nimbusds.jose.util.JSONObjectUtils
+import com.nimbusds.jwt.JWTClaimsSet
+import kotlinx.serialization.json.Json
 
-operator fun <T> KeycloakSession.invoke(block: context(KeycloakSession) () -> T): T = context(this) { block() }
+inline fun <reified T> JWTClaimsSet.tryDecodeAs(): Result<T> = result {
+    Json.decodeFromString<T>(JSONObjectUtils.toJSONString(toJSONObject()))
+}
 
-context(session: KeycloakSession)
-inline fun <reified P : Provider> isEnabled(id: String): Boolean = session.isEnabled<P>(id)
-
-context(session: KeycloakSession)
-inline fun <reified P : Provider> provider(): P = session.provider<P>()
+inline fun <reified T> JWTClaimsSet.decodeAs(): T = tryDecodeAs<T>().getOrThrow()

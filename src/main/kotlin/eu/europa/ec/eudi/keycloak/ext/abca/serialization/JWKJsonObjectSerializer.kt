@@ -15,25 +15,31 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.serialization
 
+import com.nimbusds.jose.jwk.JWK
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlin.time.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
-object InstantEpochSecondsSerializer : KSerializer<Instant> {
-    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("InstantEpochSeconds", PrimitiveKind.LONG)
+object JWKJsonObjectSerializer : KSerializer<JWK> {
+    private val serializer = JsonObject.serializer()
 
-    override fun serialize(encoder: Encoder, value: Instant) {
-        encoder.encodeLong(value.epochSeconds)
+    override val descriptor: SerialDescriptor = SerialDescriptor("JWKJsonObject", serializer.descriptor)
+
+    override fun serialize(encoder: Encoder, value: JWK) {
+        val serialized = Json.decodeFromString<JsonObject>(value.toJSONString())
+        encoder.encodeSerializableValue(serializer, serialized)
     }
 
-    override fun deserialize(decoder: Decoder): Instant = Instant.fromEpochSeconds(decoder.decodeLong(), 0L)
+    override fun deserialize(decoder: Decoder): JWK {
+        val serialized = decoder.decodeSerializableValue(serializer)
+        return JWK.parse(Json.encodeToString(serialized))
+    }
 }
 
-typealias EpochSecondsInstant =
-    @Serializable(with = InstantEpochSecondsSerializer::class)
-    Instant
+typealias JsonObjectJWK =
+    @Serializable(with = JWKJsonObjectSerializer::class)
+    JWK

@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.auth
+package eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist
 
 import arrow.core.NonEmptyList
 import arrow.core.toNonEmptyListOrNull
+import com.eygraber.uri.Uri
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.jwk.JWK
@@ -39,51 +40,49 @@ import io.ktor.client.*
 import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import org.slf4j.LoggerFactory
+import kotlinx.serialization.json.JsonIgnoreUnknownKeys
 import java.security.cert.X509Certificate
 import kotlin.time.Clock
 import eu.europa.ec.eudi.statium.Status as StatiumStatus
 
-private val log = LoggerFactory.getLogger(Status::class.java)
-
 @Serializable
-data class StatusList(
-    @SerialName(TokenStatusList.INDEX_CLAIM) @Required val index: Int,
-    @SerialName(TokenStatusList.URI_CLAIM) @Required val uri: String,
+@JsonIgnoreUnknownKeys
+data class Status(
+    @Required @SerialName(TokenStatusList.STATUS_LIST_CLAIM) val statusList: StatusList,
 )
 
 @Serializable
-data class Status(
-    @SerialName(TokenStatusList.STATUS_LIST_CLAIM) val statusList: StatusList,
-) {
+data class StatusList(
+    @Required @SerialName(TokenStatusList.INDEX_CLAIM) val index: UInt,
+    @Required @SerialName(TokenStatusList.URI_CLAIM) val uri: Uri,
+)
 
-    internal suspend fun verifyStatus(httpClient: HttpClient, isClientStatusIssuerTrusted: IsClientStatusIssuerTrusted): StatiumStatus {
-        val getStatusListToken = GetStatusListToken.usingJwt(
-            clock = Clock.System,
-            httpClient = httpClient,
-            verifyStatusListTokenSignature = { serializedStatusListToken, _ ->
-                runCatching {
-                    val statusListToken = SignedJWT.parse(serializedStatusListToken)
-                    val signingCertificate = statusListToken.header.x5c()
+suspend fun Status.verifyStatus(httpClient: HttpClient, isClientStatusIssuerTrusted: IsClientStatusIssuerTrusted): StatiumStatus {
+    val getStatusListToken = GetStatusListToken.usingJwt(
+        clock = Clock.System,
+        httpClient = httpClient,
+        verifyStatusListTokenSignature = { serializedStatusListToken, _ ->
+            runCatching {
+                val statusListToken = SignedJWT.parse(serializedStatusListToken)
+                val signingCertificate = statusListToken.header.x5c()
 
-                    statusListToken.verify(signingCertificate.first())
+                statusListToken.verify(signingCertificate.first())
 
-                    val trustResult = isClientStatusIssuerTrusted(signingCertificate)
-                    require(trustResult == TrustResult.IsTrusted) {
-                        "Status List Token issuer is not trusted"
-                    }
+                val trustResult = isClientStatusIssuerTrusted(signingCertificate)
+                require(trustResult == TrustResult.IsTrusted) {
+                    "Status List Token issuer is not trusted"
                 }
-            },
-        )
+            }
+        },
+    )
 
-        val getStatus = GetStatus(getStatusListToken)
-        val statusReference = StatusReference(
-            index = StatusIndex(this.statusList.index),
-            uri = this.statusList.uri,
-        )
-        return with(getStatus) {
-            statusReference.status(at = null).getOrThrow()
-        }
+    val getStatus = GetStatus(getStatusListToken)
+    val statusReference = StatusReference(
+        index = StatusIndex(statusList.index.toInt()),
+        uri = statusList.uri.toString(),
+    )
+    return with(getStatus) {
+        statusReference.status(at = null).getOrThrow()
     }
 }
 

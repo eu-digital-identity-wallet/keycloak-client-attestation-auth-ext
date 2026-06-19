@@ -15,6 +15,7 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca
 
+import arrow.core.nonEmptySetOf
 import com.nimbusds.jose.JWSAlgorithm
 
 /**
@@ -52,18 +53,24 @@ object AttestationBasedClientAuthentication {
  * [Specification of Wallet Unit Attestations (WUA) used in issuance of PID and Attestations](https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts3-wallet-unit-attestation.md)
  */
 object TS3 {
-    const val EUDI_WALLET_VERSION_CLAIM = "wallet_version"
-    const val EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
-    const val EUDI_CLIENT_STATUS_CLAIM = "client_status"
+    const val WALLET_VERSION_CLAIM = "wallet_version"
+    const val WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM = "wallet_solution_certification_information"
+    const val CLIENT_STATUS_CLAIM = "client_status"
 
-    val ALLOWED_ALGORITHMS = setOf(JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512)
+    val ALLOWED_ALGORITHMS = nonEmptySetOf(JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512)
 }
 
 /**
  * [SON Web Token (JWT)](https://www.rfc-editor.org/info/rfc7519/)
  */
 object RFC7519 {
+    const val ISSUER_CLAIM = "iss"
+    const val SUBJECT_CLAIM = "sub"
     const val EXPIRES_AT_CLAIM = "exp"
+    const val ISSUED_AT_CLAIM: String = "iat"
+    const val NOT_BEFORE_CLAIM: String = "nbf"
+    const val AUDIENCE_CLAIM: String = "aud"
+    const val JWT_ID_CLAIM: String = "jti"
 }
 
 /**
