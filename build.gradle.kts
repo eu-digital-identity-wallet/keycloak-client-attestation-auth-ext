@@ -40,7 +40,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlinx.coroutines.test)
 
-    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.java)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.ktor.client.mock)
