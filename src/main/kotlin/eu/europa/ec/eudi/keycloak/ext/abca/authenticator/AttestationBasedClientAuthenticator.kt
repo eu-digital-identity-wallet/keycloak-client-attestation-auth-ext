@@ -13,18 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.auth
+package eu.europa.ec.eudi.keycloak.ext.abca.authenticator
 
-import arrow.autoCloseScope
 import arrow.core.raise.*
-import arrow.core.toNonEmptyListOrNull
-import com.nimbusds.jose.util.X509CertUtils
+import com.eygraber.uri.Url
+import com.nimbusds.jose.crypto.ECDSAVerifier
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeValidationError
+import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
+import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.verifyStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.trust.*
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
+import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
+import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestation
+import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestationPoP
+import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatus
 import eu.europa.ec.eudi.statium.Status
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
@@ -42,14 +47,16 @@ import org.keycloak.models.AuthenticationExecutionModel
 import org.keycloak.models.AuthenticatorConfigModel
 import org.keycloak.models.ClientModel
 import org.keycloak.models.KeycloakSession
-import org.keycloak.protocol.oauth2.OAuth2WellKnownProviderFactory
 import org.keycloak.protocol.oidc.OIDCLoginProtocol
 import org.keycloak.provider.Provider
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.provider.ProviderConfigProperty.STRING_TYPE
 import org.keycloak.provider.ProviderConfigurationBuilder
-import org.keycloak.wellknown.WellKnownProvider
+import org.keycloak.services.Urls
 import org.slf4j.LoggerFactory
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 private const val TRUST_VALIDATOR_SERVICE_URL = "serviceUrl"
 
@@ -66,9 +73,12 @@ private val ConfigurationProperties =
 
 private const val ID = "abca-draft07"
 
-private val LOG = LoggerFactory.getLogger(AttestationBasedClientAuthenticatorFactory::class.java)
+private val LOG = LoggerFactory.getLogger(AttestationBasedClientAuthenticator::class.java)
 
-class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpClient = createHttpClient()) : AbstractClientAuthenticator() {
+class AttestationBasedClientAuthenticator(
+    private val httpClient: HttpClient = createHttpClient(),
+    private val clock: Clock = Clock.System,
+) : AbstractClientAuthenticator() {
     init {
         LOG.info("Initializing AttestationBasedClientAuthenticatorFactory...")
     }
@@ -97,7 +107,7 @@ class AttestationBasedClientAuthenticatorFactory(private val httpClient: HttpCli
 
     override fun getRequirementChoices(): Array<AuthenticationExecutionModel.Requirement> = REQUIREMENT_CHOICES
 
-    override fun authenticateClient(context: ClientAuthenticationFlowContext) = doAuthenticate(context, httpClient)
+    override fun authenticateClient(context: ClientAuthenticationFlowContext) = doAuthenticate(context, httpClient, clock)
 
     override fun dependsOn(): Set<Class<out Provider>> = setOf(ChallengeHandler::class.java)
 }
@@ -106,7 +116,7 @@ private class Config(private val client: ClientModel, private val authenticator:
 
     val trustValidatorServiceUrl: Url?
         get() = get(TRUST_VALIDATOR_SERVICE_URL)
-            ?.let { Url(it) }
+            ?.let { Url.parse(it) }
 
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
         ?.takeIf { it.isNotBlank() }
@@ -117,10 +127,9 @@ private class Config(private val client: ClientModel, private val authenticator:
     }
 }
 
-private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient: HttpClient) {
+private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient: HttpClient, clock: Clock) {
     either {
-        val clientAttestationJWT = ensureClientAttestationJWTPresent(context)
-
+        val clientAttestationJWT = ensureClientAttestationJWTPresent(context, clock)
         val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
 
         // If the request form contains client_id, ensure it matches the client attestation jwt subject
@@ -133,11 +142,11 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
         ensureClientAttestationJWTIssuerTrusted(context, httpClient, clientAttestationJWT)
         ensureClientAttestationJWTStatusActive(httpClient, clientAttestationJWT)
 
-        val clientStatus = clientAttestationJWT.clientStatus
+        val clientStatus = clientAttestationJWT.claims.clientStatus
         ensureClientStatusIsValid(httpClient, clientStatus, context)
         context.session.clientStatus = clientStatus
 
-        ensureValidClientAttestationPoPJWT(context, clientAttestationJWT, clientAttestationPoPJWT)
+        ensureValidClientAttestationPoPJWT(context, clock, clientAttestationJWT, clientAttestationPoPJWT)
     }.fold(
         ifLeft = {
             LOG.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
@@ -150,30 +159,45 @@ private fun doAuthenticate(context: ClientAuthenticationFlowContext, httpClient:
     )
 }
 
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationJWT {
+private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(
+    context: ClientAuthenticationFlowContext,
+    clock: Clock,
+): ClientAttestation {
     val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER]) {
         ClientAuthenticationFailure.missingClientAttestationJWT()
     }
-    return ensureNotNull(ClientAttestationJWT(header).getOrNull()) {
+    val clientAttestation = ensureNotNull(ClientAttestation.ofOrNull(header)) {
         ClientAuthenticationFailure.invalidClientAttestationJWT()
     }
+
+    val now = Instant.fromEpochSeconds(clock.now().epochSeconds, 0L)
+    ensure(now < clientAttestation.claims.expiresAt) {
+        ClientAuthenticationFailure.invalidClientAttestationJWT()
+    }
+    if (null != clientAttestation.claims.notBefore) {
+        ensure(now >= clientAttestation.claims.notBefore) {
+            ClientAuthenticationFailure.invalidClientAttestationJWT()
+        }
+    }
+
+    return clientAttestation
 }
 
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationPoPJWT {
+private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationPoP {
     val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER]) {
         ClientAuthenticationFailure.missingClientAttestationPoPJWT()
     }
-    return ensureNotNull(ClientAttestationPoPJWT(header).getOrNull()) {
+    return ensureNotNull(ClientAttestationPoP.ofOrNull(header)) {
         ClientAuthenticationFailure.invalidClientAttestationPoPJWT()
     }
 }
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientIdMatch(
     context: ClientAuthenticationFlowContext,
-    clientAttestationJWT: ClientAttestationJWT,
+    clientAttestation: ClientAttestation,
 ): String {
-    val clientId = context.httpRequest.decodedFormParameters?.getFirst("client_id") ?: clientAttestationJWT.subject
-    ensure(clientAttestationJWT.subject == clientId) {
+    val clientId = context.httpRequest.decodedFormParameters?.getFirst("client_id") ?: clientAttestation.claims.subject.value
+    ensure(clientAttestation.claims.subject.value == clientId) {
         ClientAuthenticationFailure.clientIdMismatch()
     }
     return clientId
@@ -195,19 +219,8 @@ private fun Raise<ClientAuthenticationFailure>.ensureActiveClient(
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerTrusted(
     context: ClientAuthenticationFlowContext,
     httpClient: HttpClient,
-    clientAttestationJWT: ClientAttestationJWT,
+    clientAttestation: ClientAttestation,
 ) {
-    val x5c = run {
-        val decoded = clientAttestationJWT.jwt
-            .header
-            .x509CertChain
-            .orEmpty()
-            .map { requireNotNull(X509CertUtils.parse(it.decode())) }
-        ensureNotNull(decoded.toNonEmptyListOrNull()) {
-            ClientAuthenticationFailure.clientAttestationJWTMissingX5C()
-        }
-    }
-
     val config = Config.fromContext(context)
     val isClientAttestationJWTIssuerTrusted =
         config.trustValidatorServiceUrl?.let {
@@ -218,7 +231,7 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerT
             IsClientAttestationIssuerTrusted.Ignored
         }
 
-    val trustResult = runBlocking { isClientAttestationJWTIssuerTrusted(x5c) }
+    val trustResult = runBlocking { isClientAttestationJWTIssuerTrusted(clientAttestation.x5c) }
     ensure(TrustResult.IsTrusted == trustResult) {
         ClientAuthenticationFailure.clientAttestationJWTIssuerNotTrusted()
     }
@@ -226,9 +239,9 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerT
 
 private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTStatusActive(
     httpClient: HttpClient,
-    clientAttestationJWT: ClientAttestationJWT,
+    clientAttestation: ClientAttestation,
 ) {
-    val statusListReference = clientAttestationJWT.status
+    val statusListReference = clientAttestation.claims.status
     if (null != statusListReference) {
         val status = runBlocking { statusListReference.verifyStatus(httpClient, IsClientStatusIssuerTrusted.Ignored) }
         ensure(Status.Valid == status) {
@@ -263,26 +276,33 @@ private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
 
 private fun Raise<ClientAuthenticationFailure>.ensureValidClientAttestationPoPJWT(
     context: ClientAuthenticationFlowContext,
-    clientAttestationJWT: ClientAttestationJWT,
-    clientAttestationPoPJWT: ClientAttestationPoPJWT,
+    clock: Clock,
+    clientAttestation: ClientAttestation,
+    clientAttestationPoP: ClientAttestationPoP,
 ) {
     catch({
-        clientAttestationPoPJWT.verifyPop(clientAttestationJWT)
+        require(clientAttestationPoP.jwt.verify(ECDSAVerifier(clientAttestation.confirmationKey)))
     }) {
         raise(ClientAuthenticationFailure.invalidClientAttestationPoPJWTSignature())
     }
 
-    ensure(context.issuer in clientAttestationPoPJWT.audience) {
+    ensure(context.issuer.toString().toNonBlankString() in clientAttestationPoP.claims.audience) {
         ClientAuthenticationFailure.invalidClientAttestationPoPJWTAudience()
     }
 
-    ensure(clientAttestationJWT.subject == clientAttestationPoPJWT.issuer) {
+    ensure(clientAttestation.claims.subject == clientAttestationPoP.claims.issuer) {
         ClientAuthenticationFailure.invalidClientAttestationPoPJWTIssuer()
     }
 
+    val now = Instant.fromEpochSeconds(clock.now().epochSeconds, 0L)
+    val issuedAtRange = (now - 60.seconds)..(now + 60.seconds)
+    ensure(clientAttestationPoP.claims.issuedAt in issuedAtRange) {
+        ClientAuthenticationFailure.clientAttestationPoPNotIssuedWithinAcceptableWindow()
+    }
+
     runBlocking {
-        val challengeHandler = checkNotNull(context.session.getProvider(ChallengeHandler::class.java))
-        val challenge = ensureNotNull(clientAttestationPoPJWT.challenge) {
+        val challengeHandler = context.session.provider<ChallengeHandler>()
+        val challenge = ensureNotNull(clientAttestationPoP.claims.challenge) {
             ClientAuthenticationFailure.missingClientAttestationPoPJWTChallenge(challengeHandler.generateNew())
         }
 
@@ -368,15 +388,6 @@ private data class ClientAuthenticationFailure(
             emptyMap(),
         )
 
-        fun clientAttestationJWTMissingX5C() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation JWT is missing 'x5c'",
-            "client_attestation_jwt_missing_x5c",
-            emptyMap(),
-        )
-
         fun clientAttestationJWTIssuerNotTrusted() = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
@@ -431,6 +442,15 @@ private data class ClientAuthenticationFailure(
             emptyMap(),
         )
 
+        fun clientAttestationPoPNotIssuedWithinAcceptableWindow() = ClientAuthenticationFailure(
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            Response.Status.UNAUTHORIZED,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Client Attestation PoP JWT not issued within an acceptable window",
+            "client_attestation_pop_jwt_not_issued_within_acceptable_window",
+            emptyMap(),
+        )
+
         fun missingClientAttestationPoPJWTChallenge(challenge: Challenge) = ClientAuthenticationFailure(
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             Response.Status.UNAUTHORIZED,
@@ -479,9 +499,5 @@ private fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
     }
 }
 
-private val ClientAuthenticationFlowContext.issuer: String
-    get() = autoCloseScope {
-        val provider = autoClose({ session.getProvider(WellKnownProvider::class.java, OAuth2WellKnownProviderFactory.PROVIDER_ID) }) { provider, _ -> provider.close() }
-        val config = provider.config as Map<*, *>
-        config["issuer"] as String
-    }
+private val ClientAuthenticationFlowContext.issuer: Url
+    get() = Url.parse(Urls.realmIssuer(session.context.uri.baseUri, session.context.realm.name))

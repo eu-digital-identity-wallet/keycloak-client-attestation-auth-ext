@@ -16,6 +16,7 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
 import arrow.core.NonEmptyList
+import com.eygraber.uri.Url
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
@@ -26,7 +27,7 @@ import java.security.cert.X509Certificate
 internal suspend fun HttpClient.validateTrust(serviceUrl: Url, x5c: NonEmptyList<X509Certificate>, verificationContext: VerificationContext): TrustResult {
     val body = TrustRequest(x5c, verificationContext)
     val isTrusted = runCatching {
-        val trustResponse = post(serviceUrl) {
+        val trustResponse = post(serviceUrl.toString()) {
             setBody(body)
             contentType(ContentType.Application.Json)
             accept(ContentType.Application.Json)

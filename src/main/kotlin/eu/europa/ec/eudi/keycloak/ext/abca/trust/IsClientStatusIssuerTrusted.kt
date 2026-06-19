@@ -16,8 +16,8 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.trust
 
 import arrow.core.NonEmptyList
+import com.eygraber.uri.Url
 import io.ktor.client.*
-import io.ktor.http.*
 import java.security.cert.X509Certificate
 
 fun interface IsClientStatusIssuerTrusted {

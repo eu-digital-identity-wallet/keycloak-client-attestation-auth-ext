@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.clientstatus
+package eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation
 
 import arrow.core.getOrElse
 import arrow.core.raise.either
@@ -22,7 +22,6 @@ import arrow.core.raise.ensureNotNull
 import arrow.core.raise.option
 import com.fasterxml.jackson.core.type.TypeReference
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.auth.ClientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import kotlinx.serialization.json.Json
 import org.keycloak.models.*
@@ -49,7 +48,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
     override fun getId(): String = "client-status-protocol-mapper"
 
-    override fun getHelpText(): String = "Maps the '${TS3.EUDI_CLIENT_STATUS_CLAIM}' Keycloak session attribute to the '${TS3.EUDI_CLIENT_STATUS_CLAIM}' claim of the token"
+    override fun getHelpText(): String = "Maps the '${TS3.CLIENT_STATUS_CLAIM}' Keycloak session attribute to the '${TS3.CLIENT_STATUS_CLAIM}' claim of the token"
 
     override fun getConfigProperties(): List<ProviderConfigProperty> = buildList {
         OIDCAttributeMapperHelper.addIncludeInTokensConfig(this, ClientStatusProtocolMapper::class.java)
@@ -62,7 +61,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
     ): AccessToken = either {
-        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "AccessToken already contains ClientStatus" }
+        ensure(TS3.CLIENT_STATUS_CLAIM !in token.otherClaims) { "AccessToken already contains ClientStatus" }
 
         val useLightweightAccessToken = getShouldUseLightweightToken(session)
         val includeInAccessToken =
@@ -76,7 +75,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         val clientStatus = ensureNotNull(session.clientStatus) { "ClientStatus NOT found in KeycloakSession" }
 
         LOGGER.info("Adding ClientStatus to AccessToken")
-        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+        token.otherClaims[TS3.CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
 
         token
     }.getOrElse {
@@ -96,13 +95,13 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
             clientStatus.associateWithAccessTokenOf(accessTokenResponse)
         }
 
-        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
+        ensure(TS3.CLIENT_STATUS_CLAIM !in accessTokenResponse.otherClaims) { "AccessTokenResponse already contains ClientStatus" }
         ensure(OIDCAttributeMapperHelper.includeInAccessTokenResponse(mappingModel)) {
             "$id is configured NOT to include ClientStatus in AccessTokenResponse"
         }
 
         LOGGER.info("Adding ClientStatus to AccessTokenResponse")
-        accessTokenResponse.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+        accessTokenResponse.otherClaims[TS3.CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
 
         accessTokenResponse
     }.getOrElse {
@@ -117,7 +116,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         userSession: UserSessionModel,
         clientSessionCtx: ClientSessionContext,
     ): AccessToken = either {
-        ensure(TS3.EUDI_CLIENT_STATUS_CLAIM !in token.otherClaims) { "Introspected AccessToken/RefreshToken already contains ClientStatus" }
+        ensure(TS3.CLIENT_STATUS_CLAIM !in token.otherClaims) { "Introspected AccessToken/RefreshToken already contains ClientStatus" }
         ensure(OIDCAttributeMapperHelper.includeInIntrospection(mappingModel)) {
             "$id is configured NOT to include ClientStatus in introspected AccessToken/RefreshToken"
         }
@@ -131,7 +130,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
         val clientStatus = Json.decodeFromString<ClientStatus>(checkNotNull(clientStatusNotes[CLIENT_STATUS_NOTE_KEY]))
 
         LOGGER.info("Adding ClientStatus to introspected AccessToken/RefreshToken")
-        token.otherClaims[TS3.EUDI_CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
+        token.otherClaims[TS3.CLIENT_STATUS_CLAIM] = clientStatus.toJackson()
 
         token
     }.getOrElse {
@@ -142,7 +141,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
 private fun ClientStatus.toJackson(): Map<String, Any> = JsonSerialization.readValue(Json.encodeToString(this), object : TypeReference<Map<String, Any>>() {})
 
-private const val CLIENT_STATUS_NOTE_KEY = TS3.EUDI_CLIENT_STATUS_CLAIM
+private const val CLIENT_STATUS_NOTE_KEY = TS3.CLIENT_STATUS_CLAIM
 
 private fun String.toInfinispanKey(): String = "$this.${CLIENT_STATUS_NOTE_KEY}"
 

@@ -17,6 +17,7 @@ arrow = "2.2.2"
 dokka = "2.2.0"
 maven-publish = "0.35.0"
 dependency-check = "12.1.1"
+uri-kmp = "0.0.21"
 
 [libraries]
 # Kotlin
@@ -43,7 +44,7 @@ ktor-client-mock = { module = "io.ktor:ktor-client-mock" }
 # Arrow
 arrow-stack = { module = "io.arrow-kt:arrow-stack", version.ref = "arrow" }
 arrow-core = { module = "io.arrow-kt:arrow-core" }
-arrow-autoclose = { module = "io.arrow-kt:arrow-autoclose" }
+arrow-core-serialization = { module = "io.arrow-kt:arrow-core-serialization" }
 
 # KeyCloak
 keycloak-dependencies-server-all = { module = "org.keycloak:keycloak-dependencies-server-all", version.ref = "keycloak" }
@@ -66,6 +67,7 @@ nimbus-oauth2 = { module = "com.nimbusds:oauth2-oidc-sdk", version.ref = "nimbus
 
 # Others
 statium = { module = "eu.europa.ec.eudi:eudi-lib-kmp-statium-jvm", version.ref = "statium" }
+uri-kmp = { module = "com.eygraber:uri-kmp", version.ref = "uri-kmp" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

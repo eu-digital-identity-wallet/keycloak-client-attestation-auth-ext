@@ -84,11 +84,11 @@ This project provides the following Keycloak Providers implementing parts of the
     - src\main\resources\META-INF\services\org.keycloak.provider.Spi -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandlerSpi
     - src\main\resources\META-INF\services\eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandlerProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.DefaultChallengeHandlerProviderFactory
 - Realm Resource: src\main\resources\META-INF\services\org.keycloak.services.resource.RealmResourceProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeRealmResourceProviderFactory
-- Client Authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.auth.AttestationBasedClientAuthenticatorFactory
+- Client Authenticator: src\main\resources\META-INF\services\org.keycloak.authentication.ClientAuthenticatorFactory -> eu.europa.ec.eudi.keycloak.ext.abca.authenticator.AttestationBasedClientAuthenticatorFactory
 - Well‑Known Provider: 
     - src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OIDCWellKnownProviderFactory
     - src\main\resources\META-INF\services\org.keycloak.wellknown.WellKnownProviderFactory -> eu.europa.ec.eudi.keycloak.ext.abca.wellknown.OAuth2WellKnownProviderFactory
-- Client Status Protocol Mapper: src\main\resources\META-INF\services\org.keycloak.protocol.ProtocolMapper -> eu.europa.ec.eudi.keycloak.ext.abca.clientstatus.ClientStatusProtocolMapper
+- Client Status Protocol Mapper: src\main\resources\META-INF\services\org.keycloak.protocol.ProtocolMapper -> eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatusProtocolMapper
 
 ## How to enable ClientStatusProtocolMapper
 1. Go to the desired client from the `Clients`

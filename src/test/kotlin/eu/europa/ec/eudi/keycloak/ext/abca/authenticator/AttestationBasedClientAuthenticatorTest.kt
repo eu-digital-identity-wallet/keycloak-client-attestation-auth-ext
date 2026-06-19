@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.auth
+package eu.europa.ec.eudi.keycloak.ext.abca.authenticator
 
 import arrow.core.right
 import com.nimbusds.jose.JOSEObjectType
@@ -31,11 +31,7 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.util.X509CertificateUtils
-import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
-import eu.europa.ec.eudi.keycloak.ext.abca.OpenId4VCI
-import eu.europa.ec.eudi.keycloak.ext.abca.RFC7800
-import eu.europa.ec.eudi.keycloak.ext.abca.TS3
-import eu.europa.ec.eudi.keycloak.ext.abca.TokenStatusList
+import eu.europa.ec.eudi.keycloak.ext.abca.*
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.toChallenge
@@ -58,10 +54,11 @@ import java.net.URI
 import java.util.*
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
 
-class AttestationBasedClientAuthenticatorFactoryTest {
+class AttestationBasedClientAuthenticatorTest {
 
     private lateinit var context: ClientAuthenticationFlowContext
     private lateinit var httpRequest: HttpRequest
@@ -71,7 +68,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     private lateinit var keycloakUriInfo: KeycloakUriInfo
     private lateinit var realm: RealmModel
     private lateinit var eventBuilder: EventBuilder
-    private lateinit var authenticator: AttestationBasedClientAuthenticatorFactory
+    private lateinit var authenticator: AttestationBasedClientAuthenticator
     private lateinit var holderKey: ECKey
     private lateinit var mockHttpClient: HttpClient
     private lateinit var challengeHandler: ChallengeHandler
@@ -80,7 +77,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
     private val challengeJwt = loadResource("challenge.txt")
 
     private fun loadResource(resource: String): String = requireNotNull(
-        AttestationBasedClientAuthenticatorFactoryTest::class.java.classLoader.getResource(resource),
+        AttestationBasedClientAuthenticatorTest::class.java.classLoader.getResource(resource),
     ).readText()
 
     @BeforeEach
@@ -96,7 +93,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         challengeHandler = mock()
 
         mockHttpClient = HttpClient(createMockEngine())
-        authenticator = AttestationBasedClientAuthenticatorFactory(mockHttpClient)
+        authenticator = AttestationBasedClientAuthenticator(mockHttpClient)
 
         whenever(context.httpRequest).thenReturn(httpRequest)
         whenever(httpRequest.httpHeaders).thenReturn(httpHeaders)
@@ -108,23 +105,13 @@ class AttestationBasedClientAuthenticatorFactoryTest {
         // Mock KeycloakSession context to avoid nulls in challenge helpers
         val kcContext: KeycloakContext = mock()
         whenever(session.context).thenReturn(kcContext)
-        whenever(kcContext.getUri(any())).thenReturn(keycloakUriInfo)
+        whenever(kcContext.uri).thenReturn(keycloakUriInfo)
         whenever(keycloakUriInfo.baseUri).thenReturn(URI.create("http://localhost:8080"))
         whenever(kcContext.realm).thenReturn(realm)
         whenever(realm.name).thenReturn("master")
 
         // Provide ChallengeHandler for challenge verification
         whenever(session.getProvider(ChallengeHandler::class.java)).thenReturn(challengeHandler)
-
-        // Mock OAuth2 WellKnown provider to stabilize issuer/audience checks
-        val wellKnownProvider: org.keycloak.wellknown.WellKnownProvider = mock()
-        whenever(
-            session.getProvider(
-                org.keycloak.wellknown.WellKnownProvider::class.java,
-                org.keycloak.protocol.oauth2.OAuth2WellKnownProviderFactory.PROVIDER_ID,
-            ),
-        ).thenReturn(wellKnownProvider)
-        whenever(wellKnownProvider.config).thenReturn(mapOf("issuer" to "http://localhost:8080/realms/master"))
 
         // Generate a fresh holder EC key (P-256) for cnf.jwk
         holderKey = ECKeyGenerator(Curve.P_256)
@@ -488,7 +475,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
                 claim(RFC7800.CONFIRMATION_CLAIM, mapOf(RFC7800.JWK_METHOD_CLAIM to cnfJwk))
             }
             claim(
-                TS3.EUDI_CLIENT_STATUS_CLAIM,
+                TS3.CLIENT_STATUS_CLAIM,
                 mapOf(
                     TokenStatusList.STATUS_CLAIM to mapOf(
                         TokenStatusList.STATUS_LIST_CLAIM to mapOf(
@@ -500,9 +487,9 @@ class AttestationBasedClientAuthenticatorFactoryTest {
                 ),
             )
             claim(OpenId4VCI.WALLET_NAME_CLAIM, "Wallet name")
-            claim(TS3.EUDI_WALLET_VERSION_CLAIM, "1.0")
+            claim(TS3.WALLET_VERSION_CLAIM, "1.0")
             claim(
-                TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
+                TS3.WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM,
                 mapOf(
                     "test" to "test",
                     "example" to "example",
@@ -543,7 +530,7 @@ class AttestationBasedClientAuthenticatorFactoryTest {
                 claim(RFC7800.CONFIRMATION_CLAIM, mapOf(RFC7800.JWK_METHOD_CLAIM to cnfJwk))
             }
             claim(
-                TS3.EUDI_CLIENT_STATUS_CLAIM,
+                TS3.CLIENT_STATUS_CLAIM,
                 mapOf(
                     TokenStatusList.STATUS_CLAIM to mapOf(
                         TokenStatusList.STATUS_LIST_CLAIM to mapOf(
@@ -555,8 +542,8 @@ class AttestationBasedClientAuthenticatorFactoryTest {
                 ),
             )
             claim(OpenId4VCI.WALLET_NAME_CLAIM, "Wallet name")
-            claim(TS3.EUDI_WALLET_VERSION_CLAIM, "1.0")
-            claim(TS3.EUDI_WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM, "example")
+            claim(TS3.WALLET_VERSION_CLAIM, "1.0")
+            claim(TS3.WALLET_SOLUTION_CERTIFICATION_INFORMATION_CLAIM, "example")
             claim(OpenId4VCI.WALLET_LINK_CLAIM, "https://example")
         }.build()
 
@@ -588,9 +575,9 @@ class AttestationBasedClientAuthenticatorFactoryTest {
             .issuer(issuer)
             .audience("http://localhost:8080/realms/master")
             .jwtID(UUID.randomUUID().toString())
-            .issueTime((now - 60.days).toJavaDate())
-            .notBeforeTime((now - 60.days).toJavaDate())
-            .expirationTime((now + 60.days).toJavaDate())
+            .issueTime(now.toJavaDate())
+            .notBeforeTime(now.toJavaDate())
+            .expirationTime((now + 10.minutes).toJavaDate())
             .claim(
                 AttestationBasedClientAuthentication.CHALLENGE_CLAIM,
                 challenge?.value ?: UUID.randomUUID().toString(),
