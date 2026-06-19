@@ -46,7 +46,7 @@ dependencies {
     testImplementation(libs.ktor.client.mock)
 
     implementation(libs.arrow.core)
-    implementation(libs.arrow.autoclose)
+    implementation(libs.arrow.core.serialization)
 
     compileOnly(libs.keycloak.server.spi)
     compileOnly(libs.keycloak.services)
@@ -63,6 +63,7 @@ dependencies {
     testImplementation(libs.nimbus.oauth2)
 
     implementation(libs.statium)
+    implementation(libs.uri.kmp)
 }
 
 java {

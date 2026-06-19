@@ -26,13 +26,11 @@ import kotlinx.coroutines.withContext
 import org.keycloak.Config
 import org.keycloak.models.KeycloakSession
 import org.keycloak.models.KeycloakSessionFactory
-import org.keycloak.models.SingleUseObjectProvider.REVOKED_KEY
 import org.keycloak.provider.Provider
 import org.keycloak.provider.ProviderFactory
 import org.keycloak.provider.Spi
 import java.security.SecureRandom
 import kotlin.io.encoding.Base64
-import kotlin.random.Random
 import kotlin.random.asKotlinRandom
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes

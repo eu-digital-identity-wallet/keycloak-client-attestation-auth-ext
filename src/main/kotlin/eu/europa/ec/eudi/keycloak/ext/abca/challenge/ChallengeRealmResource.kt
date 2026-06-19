@@ -16,7 +16,8 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.challenge
 
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
-import io.ktor.http.HttpHeaders
+import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
+import io.ktor.http.*
 import jakarta.ws.rs.HttpMethod
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
@@ -36,7 +37,7 @@ import org.keycloak.provider.Provider
 import org.keycloak.services.cors.Cors
 import org.keycloak.services.resource.RealmResourceProvider
 import org.keycloak.services.resource.RealmResourceProviderFactory
-import java.util.Date
+import java.util.*
 import kotlin.time.Clock
 import kotlin.time.toJavaInstant
 
@@ -57,7 +58,7 @@ class DefaultChallengeRealmResource(
     session: KeycloakSession,
     private val clock: Clock = Clock.System,
 ) : ChallengeRealmResource {
-    private val challengeHandler = checkNotNull(session.getProvider(ChallengeHandler::class.java))
+    private val challengeHandler = session.provider<ChallengeHandler>()
     private val cors = Cors.builder()
         .allowAllOrigins()
         .allowedMethods(HttpMethod.POST)
