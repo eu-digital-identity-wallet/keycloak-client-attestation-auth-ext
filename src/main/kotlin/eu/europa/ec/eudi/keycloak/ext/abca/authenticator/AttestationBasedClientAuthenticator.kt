@@ -32,7 +32,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttes
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatus
 import eu.europa.ec.eudi.statium.Status
 import io.ktor.client.*
-import io.ktor.client.engine.okhttp.*
+import io.ktor.client.engine.java.Java
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -493,7 +493,7 @@ private fun ClientAuthenticationFlowContext.failure(authenticationFailure: Clien
 
 private operator fun HttpHeaders.get(name: String): String? = getHeaderString(name)?.takeIf { it.isNotBlank() }?.trim()
 
-private fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
+private fun createHttpClient(): HttpClient = HttpClient(Java) {
     install(ContentNegotiation) {
         json()
     }
