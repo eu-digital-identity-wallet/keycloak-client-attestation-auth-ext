@@ -4,20 +4,18 @@ java = "21"
 keycloak = "26.6.2"
 spotless = "8.6.0"
 ktlint = "1.8.0"
-nimbusOAuth2 = "11.37"
 statium = "0.4.0"
 ktor = "3.4.3"
 kotlinx-serialization = "1.10.0"
 shadow = "9.3.2"
 kotlinx-coroutines = "1.10.2"
-mockito = "5.21.0"
-mockito-kotlin = "6.3.0"
 jersey = "4.0.2"
 arrow = "2.2.2"
 dokka = "2.2.0"
 maven-publish = "0.35.0"
 dependency-check = "12.1.1"
 uri-kmp = "0.0.21"
+mockk = "1.14.11"
 
 [libraries]
 # Kotlin
@@ -55,15 +53,11 @@ keycloak-services = { module = "org.keycloak:keycloak-services" }
 jersey-bom = { module = "org.glassfish.jersey:jersey-bom", version.ref = "jersey" }
 jersey-common = { module = "org.glassfish.jersey.core:jersey-common" }
 
-# Mockito
-mockito-bom = { module = "org.mockito:mockito-bom", version.ref = "mockito" }
-mockito-core = { module = "org.mockito:mockito-core" }
-mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version.ref = "mockito-kotlin" }
+# MockK
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 
 # Nimbus
 nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt" }
-bouncycastle-bkpkix = { module = "org.bouncycastle:bcpkix-jdk18on" }
-nimbus-oauth2 = { module = "com.nimbusds:oauth2-oidc-sdk", version.ref = "nimbusOAuth2" }
 
 # Others
 statium = { module = "eu.europa.ec.eudi:eudi-lib-kmp-statium-jvm", version.ref = "statium" }

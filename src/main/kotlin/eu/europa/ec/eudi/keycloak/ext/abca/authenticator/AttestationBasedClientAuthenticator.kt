@@ -15,88 +15,233 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.authenticator
 
-import arrow.core.raise.*
+import arrow.core.getOrElse
+import arrow.core.raise.catch
+import arrow.core.raise.context.*
+import arrow.core.raise.effect
+import arrow.core.raise.getOrElse
+import arrow.core.toNonEmptyListOrNull
 import com.eygraber.uri.Url
 import com.nimbusds.jose.crypto.ECDSAVerifier
+import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
+import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
-import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeValidationError
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
-import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.verifyStatus
-import eu.europa.ec.eudi.keycloak.ext.abca.trust.*
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
+import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
+import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensureNotNull
+import eu.europa.ec.eudi.keycloak.ext.abca.util.dropNanos
 import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestation
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestationPoP
-import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatus
-import eu.europa.ec.eudi.statium.Status
+import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatusValidator
 import io.ktor.client.*
 import io.ktor.client.engine.java.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import jakarta.ws.rs.core.HttpHeaders
+import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.runBlocking
 import org.keycloak.Config
+import org.keycloak.OAuth2Constants
 import org.keycloak.authentication.*
 import org.keycloak.authentication.authenticators.client.ClientAuthUtil
+import org.keycloak.events.Errors
 import org.keycloak.models.*
 import org.keycloak.protocol.oidc.OIDCLoginProtocol
 import org.keycloak.provider.Provider
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.provider.ProviderConfigurationBuilder
 import org.keycloak.services.Urls
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
+import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
 
 class AttestationBasedClientAuthenticator(
     private val httpClient: HttpClient = createHttpClient(),
     private val clock: Clock = Clock.System,
 ) : ClientAuthenticator {
     override fun authenticateClient(context: ClientAuthenticationFlowContext) {
-        either {
-            val clientAttestationJWT = ensureClientAttestationJWTPresent(context, clock)
-            val clientAttestationPoPJWT = ensureClientAttestationPoPJWTPresent(context)
+        runBlocking {
+            with(context) {
+                effect {
+                    val (clientAttestation, client) = ensureValidClientAttestationAndActiveClient()
 
-            // If the request form contains client_id, ensure it matches the client attestation jwt subject
-            val clientId = ensureClientIdMatch(context, clientAttestationJWT)
-            context.event.client(clientId)
+                    val clientId = formParameters.getFirst(OAuth2Constants.CLIENT_ID)
+                    if (client.isPublicClient) {
+                        ensureNotNull(clientId) {
+                            ClientAuthenticationError.MissingClientId
+                        }
+                    }
+                    if (null != clientId) {
+                        ensure(clientAttestation.claims.subject.value == clientId) {
+                            ClientAuthenticationError.ClientIdMismatch
+                        }
+                    }
 
-            val client = ensureActiveClient(context, clientId)
-            context.client = client
+                    ensureValidClientAttestationPoP(clientAttestation)
 
-            ensureClientAttestationJWTIssuerTrusted(log, context, httpClient, clientAttestationJWT)
-            ensureClientAttestationJWTStatusActive(httpClient, clientAttestationJWT)
+                    this@with.client = client
+                    event.client(client)
+                    session.clientStatus = clientAttestation.claims.clientStatus
+                    success()
+                }.getOrElse { failure(it) }
+            }
+        }
+    }
 
-            val clientStatus = clientAttestationJWT.claims.clientStatus
-            ensureClientStatusIsValid(log, httpClient, clientStatus, context)
-            context.session.clientStatus = clientStatus
+    context(_: Raise<ClientAuthenticationError>)
+    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestationAndActiveClient(): Pair<ClientAttestation, ClientModel> {
+        val header = ensureNotNull(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER)) {
+            ClientAuthenticationError.MissingClientAttestation
+        }
+        val clientAttestation = ensureNotNull(ClientAttestation.ofOrNull(header)) {
+            ClientAuthenticationError.InvalidClientAttestation
+        }
 
-            ensureValidClientAttestationPoPJWT(context, clock, clientAttestationJWT, clientAttestationPoPJWT)
-        }.fold(
-            ifLeft = {
-                log.warn("Failed to authenticate Client using Attestation Based Client Authentication; Reason: ${it.eventError}")
-                context.failure(it)
-            },
-            ifRight = {
-                log.info("Successfully authenticated Client ${context.client.clientId} using Attestation Based Client Authentication")
-                context.success()
-            },
-        )
+        val now = clock.now().dropNanos()
+        ensure(now < clientAttestation.claims.expiresAt) {
+            ClientAuthenticationError.ExpiredClientAttestation
+        }
+
+        if (null != clientAttestation.claims.notBefore) {
+            ensure(now >= clientAttestation.claims.notBefore) {
+                ClientAuthenticationError.InactiveClientAttestation
+            }
+        }
+
+        val client = ensureNotNull(session.clients().getClientByClientId(realm, clientAttestation.claims.subject.value)) {
+            ClientAuthenticationError.ClientNotFound
+        }
+        ensure(client.isEnabled) {
+            ClientAuthenticationError.InactiveClient
+        }
+
+        val config = ClientAuthenticatorConfig(client, authenticatorConfig)
+        ensure(config.trustValidator.isTrusted(clientAttestation.x5c, VerificationContext.WALLET_INSTANCE_ATTESTATION)) {
+            ClientAuthenticationError.ClientAttestationIssuerNotTrusted
+        }
+        val clientStatusValid = catch({
+            config.clientStatusValidator.isValid(clientAttestation.claims.clientStatus)
+        }) {
+            if ("Invalid JWT signature" == it.message) {
+                raise(ClientAuthenticationError.ClientStatusIssuerNotTrusted)
+            } else {
+                throw it
+            }
+        }
+        ensure(clientStatusValid) {
+            ClientAuthenticationError.InvalidClientStatus
+        }
+
+        return clientAttestation to client
+    }
+
+    private val ClientAuthenticatorConfig.trustValidator: TrustValidator
+        get() {
+            val trustValidatorServiceUrl = trustValidatorServiceUrl
+            return if (null != trustValidatorServiceUrl) TrustValidator(httpClient, trustValidatorServiceUrl) else TrustValidator.Ignored
+        }
+
+    private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
+        get() = ClientStatusValidator(httpClient, clock, 15.seconds) { statusListToken ->
+            option {
+                ensure(statusListToken.header.algorithm in TS3.ALLOWED_ALGORITHMS)
+                val x5c = ensureNotNull(statusListToken.header.x509CertChain?.toNonEmptyListOrNull())
+                    .map { X509CertUtils.parseWithException(it.decode()) }
+                val signingKey = x5c.first().publicKey
+                ensure(signingKey is ECPublicKey)
+                ensure(statusListToken.verify(ECDSAVerifier(signingKey)))
+                trustValidator.isTrusted(x5c, VerificationContext.WALLET_OR_KEY_STORAGE_STATUS)
+            }.getOrElse { false }
+        }
+
+    context(_: Raise<ClientAuthenticationError>)
+    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestationPoP(
+        clientAttestation: ClientAttestation,
+    ): ClientAttestationPoP {
+        val header = ensureNotNull(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER)) {
+            ClientAuthenticationError.MissingClientAttestationPoP
+        }
+        val clientAttestationPoP = ensureNotNull(ClientAttestationPoP.ofOrNull(header)) {
+            ClientAuthenticationError.InvalidClientAttestationPoP
+        }
+
+        val signatureValid = catch({
+            clientAttestationPoP.jwt.verify(ECDSAVerifier(clientAttestation.confirmationKey))
+        }) { false }
+        ensure(signatureValid) {
+            ClientAuthenticationError.InvalidClientAttestationPoPSignature
+        }
+
+        ensure(clientAttestation.claims.subject == clientAttestationPoP.claims.issuer) {
+            ClientAuthenticationError.InvalidClientAttestationPoPIssuer
+        }
+
+        ensure(issuer.toString().toNonBlankString() in clientAttestationPoP.claims.audience) {
+            ClientAuthenticationError.InvalidClientAttestationPoPAudience
+        }
+
+        val now = clock.now().dropNanos()
+        ensure(clientAttestationPoP.claims.issuedAt >= now - (2.minutes)) {
+            ClientAuthenticationError.StaleClientAttestationPoP
+        }
+
+        val challengeHandler = session.provider<ChallengeHandler>()
+        val challenge = ensureNotNull(clientAttestationPoP.claims.challenge) {
+            ClientAuthenticationError.InvalidClientAttestationPoPChallenge(challengeHandler.generateNew())
+        }
+        withError({ ClientAuthenticationError.InvalidClientAttestationPoPChallenge(it.challenge) }) {
+            challengeHandler.validate(challenge.value)
+        }
+
+        if (null != clientAttestationPoP.claims.notBefore) {
+            ensure(now >= clientAttestationPoP.claims.notBefore) {
+                ClientAuthenticationError.InactiveClientAttestationPoP
+            }
+        }
+
+        return clientAttestationPoP
     }
 
     override fun close() {
         // no-op
     }
+}
 
-    companion object {
-        private val log by lazy { LoggerFactory.getLogger(AttestationBasedClientAuthenticator::class.java) }
+private fun createHttpClient(): HttpClient = HttpClient(Java) {
+    install(ContentNegotiation) {
+        json()
     }
+}
+
+private sealed interface ClientAuthenticationError {
+    data object MissingClientAttestation : ClientAuthenticationError
+    data object InvalidClientAttestation : ClientAuthenticationError
+    data object ExpiredClientAttestation : ClientAuthenticationError
+    data object InactiveClientAttestation : ClientAuthenticationError
+    data object ClientNotFound : ClientAuthenticationError
+    data object InactiveClient : ClientAuthenticationError
+    data object ClientAttestationIssuerNotTrusted : ClientAuthenticationError
+    data object ClientStatusIssuerNotTrusted : ClientAuthenticationError
+    data object InvalidClientStatus : ClientAuthenticationError
+    data object MissingClientId : ClientAuthenticationError
+    data object ClientIdMismatch : ClientAuthenticationError
+    data object MissingClientAttestationPoP : ClientAuthenticationError
+    data object InvalidClientAttestationPoP : ClientAuthenticationError
+    data object InvalidClientAttestationPoPSignature : ClientAuthenticationError
+    data object InvalidClientAttestationPoPIssuer : ClientAuthenticationError
+    data object InvalidClientAttestationPoPAudience : ClientAuthenticationError
+    data object StaleClientAttestationPoP : ClientAuthenticationError
+    data class InvalidClientAttestationPoPChallenge(val useAttestationChallenge: Challenge) : ClientAuthenticationError
+    data object InactiveClientAttestationPoP : ClientAuthenticationError
 }
 
 private class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
@@ -107,356 +252,62 @@ private class ClientAuthenticatorConfig(private val client: ClientModel, private
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
 
     companion object {
-        const val TRUST_VALIDATOR_SERVICE_URL = "serviceUrl"
-
-        fun fromContext(context: ClientAuthenticationFlowContext): ClientAuthenticatorConfig = ClientAuthenticatorConfig(context.client, context.authenticatorConfig)
+        const val TRUST_VALIDATOR_SERVICE_URL = "trustValidator.serviceUrl"
     }
 }
 
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTPresent(
-    context: ClientAuthenticationFlowContext,
-    clock: Clock,
-): ClientAttestation {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER]) {
-        ClientAuthenticationFailure.missingClientAttestationJWT()
-    }
-    val clientAttestation = ensureNotNull(ClientAttestation.ofOrNull(header)) {
-        ClientAuthenticationFailure.invalidClientAttestationJWT()
-    }
-
-    val now = Instant.fromEpochSeconds(clock.now().epochSeconds, 0L)
-    ensure(now < clientAttestation.claims.expiresAt) {
-        ClientAuthenticationFailure.invalidClientAttestationJWT()
-    }
-    if (null != clientAttestation.claims.notBefore) {
-        ensure(now >= clientAttestation.claims.notBefore) {
-            ClientAuthenticationFailure.invalidClientAttestationJWT()
-        }
-    }
-
-    return clientAttestation
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationPoPJWTPresent(context: ClientAuthenticationFlowContext): ClientAttestationPoP {
-    val header = ensureNotNull(context.httpRequest.httpHeaders[AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER]) {
-        ClientAuthenticationFailure.missingClientAttestationPoPJWT()
-    }
-    return ensureNotNull(ClientAttestationPoP.ofOrNull(header)) {
-        ClientAuthenticationFailure.invalidClientAttestationPoPJWT()
-    }
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureClientIdMatch(
-    context: ClientAuthenticationFlowContext,
-    clientAttestation: ClientAttestation,
-): String {
-    val clientId = context.httpRequest.decodedFormParameters?.getFirst("client_id") ?: clientAttestation.claims.subject.value
-    ensure(clientAttestation.claims.subject.value == clientId) {
-        ClientAuthenticationFailure.clientIdMismatch()
-    }
-    return clientId
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureActiveClient(
-    context: ClientAuthenticationFlowContext,
-    clientId: String,
-): ClientModel {
-    val client = ensureNotNull(context.session.clients().getClientByClientId(context.realm, clientId)) {
-        ClientAuthenticationFailure.clientNotFound()
-    }
-    ensure(client.isEnabled) {
-        ClientAuthenticationFailure.clientDisabled()
-    }
-    return client
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTIssuerTrusted(
-    log: Logger,
-    context: ClientAuthenticationFlowContext,
-    httpClient: HttpClient,
-    clientAttestation: ClientAttestation,
-) {
-    val config = ClientAuthenticatorConfig.fromContext(context)
-    val isClientAttestationJWTIssuerTrusted =
-        config.trustValidatorServiceUrl?.let {
-            log.info("Validating Client Attestation JWT Issuer using Trust Validator Service; Service Url: $it")
-            IsClientAttestationIssuerTrusted.usingTrustValidatorService(httpClient, it)
-        } ?: run {
-            log.warn("Trust Validator Service Url not configured; Trusting all Client Attestation JWT Issuers")
-            IsClientAttestationIssuerTrusted.Ignored
-        }
-
-    val trustResult = runBlocking { isClientAttestationJWTIssuerTrusted(clientAttestation.x5c) }
-    ensure(TrustResult.IsTrusted == trustResult) {
-        ClientAuthenticationFailure.clientAttestationJWTIssuerNotTrusted()
-    }
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureClientAttestationJWTStatusActive(
-    httpClient: HttpClient,
-    clientAttestation: ClientAttestation,
-) {
-    val statusListReference = clientAttestation.claims.status
-    if (null != statusListReference) {
-        val status = runBlocking { statusListReference.verifyStatus(httpClient, IsClientStatusIssuerTrusted.Ignored) }
-        ensure(Status.Valid == status) {
-            ClientAuthenticationFailure.clientAttestationJWTStatusNotValid()
-        }
-    }
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureClientStatusIsValid(
-    log: Logger,
-    httpClient: HttpClient,
-    clientStatus: ClientStatus,
-    context: ClientAuthenticationFlowContext,
-) {
-    val statusListReference = clientStatus.status
-
-    val config = ClientAuthenticatorConfig.fromContext(context)
-    val trustValidationServiceUrl = config.trustValidatorServiceUrl
-
-    val isClientStatusIssuerTrusted = if (null != trustValidationServiceUrl) {
-        log.info("Validating Client Status JWT using Trust Validator Service; Service Url: $trustValidationServiceUrl")
-        IsClientStatusIssuerTrusted.usingTrustValidatorService(httpClient, trustValidationServiceUrl)
-    } else {
-        log.warn("Trust Validator Service Url not configured; Trusting all Client Status JWT")
-        IsClientStatusIssuerTrusted.Ignored
-    }
-
-    val status = runBlocking { statusListReference.verifyStatus(httpClient, isClientStatusIssuerTrusted) }
-    ensure(Status.Valid == status) {
-        ClientAuthenticationFailure.clientAttestationJWTInvalidClientStatus()
-    }
-}
-
-private fun Raise<ClientAuthenticationFailure>.ensureValidClientAttestationPoPJWT(
-    context: ClientAuthenticationFlowContext,
-    clock: Clock,
-    clientAttestation: ClientAttestation,
-    clientAttestationPoP: ClientAttestationPoP,
-) {
-    catch({
-        require(clientAttestationPoP.jwt.verify(ECDSAVerifier(clientAttestation.confirmationKey)))
-    }) {
-        raise(ClientAuthenticationFailure.invalidClientAttestationPoPJWTSignature())
-    }
-
-    ensure(context.issuer.toString().toNonBlankString() in clientAttestationPoP.claims.audience) {
-        ClientAuthenticationFailure.invalidClientAttestationPoPJWTAudience()
-    }
-
-    ensure(clientAttestation.claims.subject == clientAttestationPoP.claims.issuer) {
-        ClientAuthenticationFailure.invalidClientAttestationPoPJWTIssuer()
-    }
-
-    val now = Instant.fromEpochSeconds(clock.now().epochSeconds, 0L)
-    val issuedAtRange = (now - 60.seconds)..(now + 60.seconds)
-    ensure(clientAttestationPoP.claims.issuedAt in issuedAtRange) {
-        ClientAuthenticationFailure.clientAttestationPoPNotIssuedWithinAcceptableWindow()
-    }
-
-    runBlocking {
-        val challengeHandler = context.session.provider<ChallengeHandler>()
-        val challenge = ensureNotNull(clientAttestationPoP.claims.challenge) {
-            ClientAuthenticationFailure.missingClientAttestationPoPJWTChallenge(challengeHandler.generateNew())
-        }
-
-        challengeHandler.validate(challenge.value)
-            .mapLeft {
-                when (it) {
-                    is ChallengeValidationError.UseAttestationChallenge -> ClientAuthenticationFailure.invalidClientAttestationPoPJWTChallenge(it)
-                }
-            }
-            .bind()
-    }
-}
-
-private data class ClientAuthenticationFailure(
-    val flowError: AuthenticationFlowError,
-    val httpStatus: Response.Status,
-    val oauthError: String,
-    val message: String,
-    val eventError: String,
-    val headers: Map<String, String>,
-) {
-    companion object {
-        fun missingClientAttestationJWT() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Missing Client Attestation JWT",
-            "missing_client_attestation_jwt",
-            emptyMap(),
-        )
-
-        fun invalidClientAttestationJWT() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation JWT is not valid",
-            "client_attestation_jwt_not_valid",
-            emptyMap(),
-        )
-
-        fun missingClientAttestationPoPJWT() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Missing Client Attestation PoP JWT",
-            "missing_client_attestation_pop_jwt",
-            emptyMap(),
-        )
-
-        fun invalidClientAttestationPoPJWT() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP JWT is not valid",
-            "client_attestation_pop_jwt_not_valid",
-            emptyMap(),
-        )
-
-        fun clientIdMismatch() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Request client_id does not match Client Attestation JWT subject",
-            "client_id_mismatch",
-            emptyMap(),
-        )
-
-        fun clientNotFound() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client not found",
-            "client_not_found",
-            emptyMap(),
-        )
-
-        fun clientDisabled() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client is disabled",
-            "client_disabled",
-            emptyMap(),
-        )
-
-        fun clientAttestationJWTIssuerNotTrusted() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation JWT Issuer is not trusted",
-            "client_attestation_jwt_issuer_not_trusted",
-            emptyMap(),
-        )
-
-        fun clientAttestationJWTInvalidClientStatus() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation JWT Client Status is invalid",
-            "client_attestation_jwt_client_status_invalid",
-            emptyMap(),
-        )
-
-        fun clientAttestationJWTStatusNotValid() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation JWT Status is not Valid",
-            "client_attestation_jwt_status_not_valid",
-            emptyMap(),
-        )
-
-        fun invalidClientAttestationPoPJWTSignature() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP JWT signature is not valid",
-            "client_attestation_pop_jwt_signature_not_valid",
-            emptyMap(),
-        )
-
-        fun invalidClientAttestationPoPJWTAudience() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP JWT audience is not valid",
-            "client_attestation_pop_jwt_audience_not_valid",
-            emptyMap(),
-        )
-
-        fun invalidClientAttestationPoPJWTIssuer() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP JWT Issuer is not valid",
-            "client_attestation_pop_jwt_issuer_not_valid",
-            emptyMap(),
-        )
-
-        fun clientAttestationPoPNotIssuedWithinAcceptableWindow() = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP JWT not issued within an acceptable window",
-            "client_attestation_pop_jwt_not_issued_within_acceptable_window",
-            emptyMap(),
-        )
-
-        fun missingClientAttestationPoPJWTChallenge(challenge: Challenge) = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR,
-            "Client Attestation PoP JWT is missing Challenge",
-            "client_attestation_pop_jwt_missing_challenge",
-            mapOf(
-                AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to challenge.value,
-            ),
-        )
-
-        fun invalidClientAttestationPoPJWTChallenge(error: ChallengeValidationError.UseAttestationChallenge) = ClientAuthenticationFailure(
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            Response.Status.UNAUTHORIZED,
-            AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR,
-            "Client Attestation PoP JWT Challenge is not valid",
-            "client_attestation_pop_jwt_challenge_not_valid",
-            mapOf(
-                AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to error.challenge.value,
-            ),
-        )
-    }
-}
-
-private fun ClientAuthenticationFlowContext.failure(authenticationFailure: ClientAuthenticationFailure) {
-    val response = Response.fromResponse(
-        ClientAuthUtil.errorResponse(
-            authenticationFailure.httpStatus.statusCode,
-            authenticationFailure.oauthError,
-            authenticationFailure.message,
-        ),
-    ).apply {
-        authenticationFailure.headers.forEach { (name, value) -> header(name, value) }
-    }
-        .build()
-
-    event.error(authenticationFailure.eventError)
-    failure(authenticationFailure.flowError, response)
-}
-
-private operator fun HttpHeaders.get(name: String): String? = getHeaderString(name)?.takeIf { it.isNotBlank() }?.trim()
-
-private fun createHttpClient(): HttpClient = HttpClient(Java) {
-    install(ContentNegotiation) {
-        json()
-    }
-}
+private val ClientAuthenticationFlowContext.httpHeaders: HttpHeaders
+    get() = httpRequest.httpHeaders
 
 private val ClientAuthenticationFlowContext.issuer: Url
-    get() = Url.parse(Urls.realmIssuer(session.context.uri.baseUri, session.context.realm.name))
+    get() = Url.parse(Urls.realmIssuer(session.context.uri.baseUri, realm.name))
+
+private val ClientAuthenticationFlowContext.formParameters: MultivaluedMap<String, String>
+    get() = httpRequest.decodedFormParameters
+
+private fun ClientAuthenticationFlowContext.failure(clientAuthenticationError: ClientAuthenticationError) {
+    val (error, errorDescription) = when (clientAuthenticationError) {
+        ClientAuthenticationError.MissingClientAttestation -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER} header"
+        ClientAuthenticationError.InvalidClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Wallet Instance Attestation"
+        ClientAuthenticationError.ExpiredClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is expired"
+        ClientAuthenticationError.InactiveClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is not active"
+        ClientAuthenticationError.ClientNotFound -> Errors.INVALID_CLIENT to "Client not found"
+        ClientAuthenticationError.InactiveClient -> Errors.INVALID_CLIENT to "Client is not active"
+        ClientAuthenticationError.ClientAttestationIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Wallet Instance Attestation is not trusted"
+        ClientAuthenticationError.ClientStatusIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Status of the Wallet Instance Attestation is not trusted"
+        ClientAuthenticationError.InvalidClientStatus -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Status of the Wallet Instance Attestation is not Valid"
+        ClientAuthenticationError.MissingClientId -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter is required for public clients"
+        ClientAuthenticationError.ClientIdMismatch -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter does not match the subject of Wallet Instance Attestation"
+        ClientAuthenticationError.MissingClientAttestationPoP -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER} header"
+        ClientAuthenticationError.InvalidClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Client Attestation PoP"
+        ClientAuthenticationError.InvalidClientAttestationPoPSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The signature of the Client Attestation PoP is not valid"
+        ClientAuthenticationError.InvalidClientAttestationPoPIssuer -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Attestation PoP is not valid"
+        ClientAuthenticationError.InvalidClientAttestationPoPAudience -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The audience of the Client Attestation PoP is not valid"
+        ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Client Attestation PoP is too old"
+        is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
+        ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
+    }
+    val headers = when (clientAuthenticationError) {
+        is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
+        else -> emptyMap()
+    }
+    val flowError = when (clientAuthenticationError) {
+        ClientAuthenticationError.ClientNotFound -> AuthenticationFlowError.CLIENT_NOT_FOUND
+        ClientAuthenticationError.InactiveClient -> AuthenticationFlowError.CLIENT_DISABLED
+        else -> AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS
+    }
+
+    val response = Response.fromResponse(
+        ClientAuthUtil.errorResponse(Response.Status.BAD_REQUEST.statusCode, error, errorDescription),
+    ).apply {
+        headers.forEach { (name, value) -> header(name, value) }
+    }.build()
+
+    client = null
+    event.client(null as ClientModel?)
+    session.clientStatus = null
+    failure(flowError, response)
+}
 
 class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
     override fun create(): ClientAuthenticator = AttestationBasedClientAuthenticator()
