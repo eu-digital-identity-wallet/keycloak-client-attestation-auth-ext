@@ -67,8 +67,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class AttestationBasedClientAuthenticator(
-    private val httpClient: HttpClient = createHttpClient(),
-    private val clock: Clock = Clock.System,
+    private val httpClient: HttpClient,
+    private val clock: Clock,
 ) : ClientAuthenticator {
     override fun authenticateClient(context: ClientAuthenticationFlowContext) {
         runBlocking {
@@ -270,12 +270,6 @@ class AttestationBasedClientAuthenticator(
     }
 }
 
-private fun createHttpClient(): HttpClient = HttpClient(Java) {
-    install(ContentNegotiation) {
-        json()
-    }
-}
-
 private sealed interface ClientAuthenticationError {
     data object MissingClientAttestation : ClientAuthenticationError
     data object InvalidClientAttestation : ClientAuthenticationError
@@ -323,9 +317,9 @@ private val ClientAuthenticationFlowContext.formParameters: MultivaluedMap<Strin
     get() = httpRequest.decodedFormParameters
 
 class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
-    override fun create(): ClientAuthenticator = AttestationBasedClientAuthenticator()
+    override fun create(): ClientAuthenticator = AttestationBasedClientAuthenticator(createHttpClient(), Clock.System)
 
-    override fun create(session: KeycloakSession): ClientAuthenticator = AttestationBasedClientAuthenticator()
+    override fun create(session: KeycloakSession): ClientAuthenticator = AttestationBasedClientAuthenticator(createHttpClient(), Clock.System)
 
     override fun isConfigurable(): Boolean = true
 
@@ -373,6 +367,12 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
     override fun getConfigPropertiesPerClient(): List<ProviderConfigProperty> = configProperties
 
     override fun dependsOn(): Set<Class<out Provider>> = setOf(ChallengeHandler::class.java)
+
+    private fun createHttpClient(): HttpClient = HttpClient(Java) {
+        install(ContentNegotiation) {
+            json()
+        }
+    }
 
     companion object {
         const val ID = "abca-draft07"
