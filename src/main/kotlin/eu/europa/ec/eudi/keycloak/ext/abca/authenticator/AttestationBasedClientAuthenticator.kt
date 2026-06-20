@@ -59,6 +59,7 @@ import org.keycloak.provider.Provider
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.provider.ProviderConfigurationBuilder
 import org.keycloak.services.Urls
+import org.slf4j.LoggerFactory
 import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -88,6 +89,7 @@ class AttestationBasedClientAuthenticator(
 
                     ensureValidClientAttestationPoP(clientAttestation)
 
+                    log.info("Successfully authenticated Client: {}", client.clientId)
                     this@with.client = client
                     event.client(client)
                     session.clientStatus = clientAttestation.claims.clientStatus
@@ -211,8 +213,57 @@ class AttestationBasedClientAuthenticator(
         return clientAttestationPoP
     }
 
+    private fun ClientAuthenticationFlowContext.failure(clientAuthenticationError: ClientAuthenticationError) {
+        val (error, errorDescription) = when (clientAuthenticationError) {
+            ClientAuthenticationError.MissingClientAttestation -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER} header"
+            ClientAuthenticationError.InvalidClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Wallet Instance Attestation"
+            ClientAuthenticationError.ExpiredClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is expired"
+            ClientAuthenticationError.InactiveClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is not active"
+            ClientAuthenticationError.ClientNotFound -> Errors.INVALID_CLIENT to "Client not found"
+            ClientAuthenticationError.InactiveClient -> Errors.INVALID_CLIENT to "Client is not active"
+            ClientAuthenticationError.ClientAttestationIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Wallet Instance Attestation is not trusted"
+            ClientAuthenticationError.ClientStatusIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Status of the Wallet Instance Attestation is not trusted"
+            ClientAuthenticationError.InvalidClientStatus -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Status of the Wallet Instance Attestation is not Valid"
+            ClientAuthenticationError.MissingClientId -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter is required for public clients"
+            ClientAuthenticationError.ClientIdMismatch -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter does not match the subject of Wallet Instance Attestation"
+            ClientAuthenticationError.MissingClientAttestationPoP -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER} header"
+            ClientAuthenticationError.InvalidClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Client Attestation PoP"
+            ClientAuthenticationError.InvalidClientAttestationPoPSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The signature of the Client Attestation PoP is not valid"
+            ClientAuthenticationError.InvalidClientAttestationPoPIssuer -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Attestation PoP is not valid"
+            ClientAuthenticationError.InvalidClientAttestationPoPAudience -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The audience of the Client Attestation PoP is not valid"
+            ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Client Attestation PoP is too old"
+            is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
+            ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
+        }
+        val headers = when (clientAuthenticationError) {
+            is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
+            else -> emptyMap()
+        }
+        val flowError = when (clientAuthenticationError) {
+            ClientAuthenticationError.ClientNotFound -> AuthenticationFlowError.CLIENT_NOT_FOUND
+            ClientAuthenticationError.InactiveClient -> AuthenticationFlowError.CLIENT_DISABLED
+            else -> AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS
+        }
+
+        val response = Response.fromResponse(
+            ClientAuthUtil.errorResponse(Response.Status.BAD_REQUEST.statusCode, error, errorDescription),
+        ).apply {
+            headers.forEach { (name, value) -> header(name, value) }
+        }.build()
+
+        log.warn("Failed to authenticate Client: {}", clientAuthenticationError)
+        client = null
+        event.client(null as ClientModel?)
+        session.clientStatus = null
+        failure(flowError, response)
+    }
+
     override fun close() {
         // no-op
+    }
+
+    companion object {
+        private val log = LoggerFactory.getLogger(AttestationBasedClientAuthenticator::class.java)
     }
 }
 
@@ -264,50 +315,6 @@ private val ClientAuthenticationFlowContext.issuer: Url
 
 private val ClientAuthenticationFlowContext.formParameters: MultivaluedMap<String, String>
     get() = httpRequest.decodedFormParameters
-
-private fun ClientAuthenticationFlowContext.failure(clientAuthenticationError: ClientAuthenticationError) {
-    val (error, errorDescription) = when (clientAuthenticationError) {
-        ClientAuthenticationError.MissingClientAttestation -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER} header"
-        ClientAuthenticationError.InvalidClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Wallet Instance Attestation"
-        ClientAuthenticationError.ExpiredClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is expired"
-        ClientAuthenticationError.InactiveClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is not active"
-        ClientAuthenticationError.ClientNotFound -> Errors.INVALID_CLIENT to "Client not found"
-        ClientAuthenticationError.InactiveClient -> Errors.INVALID_CLIENT to "Client is not active"
-        ClientAuthenticationError.ClientAttestationIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Wallet Instance Attestation is not trusted"
-        ClientAuthenticationError.ClientStatusIssuerNotTrusted -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Status of the Wallet Instance Attestation is not trusted"
-        ClientAuthenticationError.InvalidClientStatus -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Status of the Wallet Instance Attestation is not Valid"
-        ClientAuthenticationError.MissingClientId -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter is required for public clients"
-        ClientAuthenticationError.ClientIdMismatch -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter does not match the subject of Wallet Instance Attestation"
-        ClientAuthenticationError.MissingClientAttestationPoP -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER} header"
-        ClientAuthenticationError.InvalidClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Client Attestation PoP"
-        ClientAuthenticationError.InvalidClientAttestationPoPSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The signature of the Client Attestation PoP is not valid"
-        ClientAuthenticationError.InvalidClientAttestationPoPIssuer -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Attestation PoP is not valid"
-        ClientAuthenticationError.InvalidClientAttestationPoPAudience -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The audience of the Client Attestation PoP is not valid"
-        ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Client Attestation PoP is too old"
-        is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
-        ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
-    }
-    val headers = when (clientAuthenticationError) {
-        is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
-        else -> emptyMap()
-    }
-    val flowError = when (clientAuthenticationError) {
-        ClientAuthenticationError.ClientNotFound -> AuthenticationFlowError.CLIENT_NOT_FOUND
-        ClientAuthenticationError.InactiveClient -> AuthenticationFlowError.CLIENT_DISABLED
-        else -> AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS
-    }
-
-    val response = Response.fromResponse(
-        ClientAuthUtil.errorResponse(Response.Status.BAD_REQUEST.statusCode, error, errorDescription),
-    ).apply {
-        headers.forEach { (name, value) -> header(name, value) }
-    }.build()
-
-    client = null
-    event.client(null as ClientModel?)
-    session.clientStatus = null
-    failure(flowError, response)
-}
 
 class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
     override fun create(): ClientAuthenticator = AttestationBasedClientAuthenticator()
