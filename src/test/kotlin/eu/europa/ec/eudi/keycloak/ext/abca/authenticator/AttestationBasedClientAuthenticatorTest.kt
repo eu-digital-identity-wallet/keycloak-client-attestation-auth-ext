@@ -54,6 +54,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.mockk.*
 import jakarta.ws.rs.core.HttpHeaders
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.test.runTest
@@ -99,6 +100,7 @@ class AttestationBasedClientAuthenticatorTest {
     fun setup() {
         every { context.httpRequest } returns httpRequest
         every { httpRequest.httpHeaders } returns httpHeaders
+        every { httpHeaders.mediaType } returns MediaType.APPLICATION_FORM_URLENCODED_TYPE
         every { context.session } returns session
         every { session.clients() } returns clients
         every { context.realm } returns realm

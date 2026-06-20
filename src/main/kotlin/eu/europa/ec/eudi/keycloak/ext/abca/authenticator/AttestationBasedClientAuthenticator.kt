@@ -45,6 +45,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import jakarta.ws.rs.core.HttpHeaders
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.runBlocking
@@ -75,15 +76,17 @@ class AttestationBasedClientAuthenticator(
                 effect {
                     val (clientAttestation, client) = ensureValidClientAttestationAndActiveClient()
 
-                    val clientId = formParameters.getFirst(OAuth2Constants.CLIENT_ID)
-                    if (client.isPublicClient) {
-                        ensureNotNull(clientId) {
-                            ClientAuthenticationError.MissingClientId
+                    if (hasFormParameters) {
+                        val clientId = formParameters.getFirst(OAuth2Constants.CLIENT_ID)
+                        if (client.isPublicClient) {
+                            ensureNotNull(clientId) {
+                                ClientAuthenticationError.MissingClientId
+                            }
                         }
-                    }
-                    if (null != clientId) {
-                        ensure(clientAttestation.claims.subject.value == clientId) {
-                            ClientAuthenticationError.ClientIdMismatch
+                        if (null != clientId) {
+                            ensure(clientAttestation.claims.subject.value == clientId) {
+                                ClientAuthenticationError.ClientIdMismatch
+                            }
                         }
                     }
 
@@ -312,6 +315,9 @@ private val ClientAuthenticationFlowContext.httpHeaders: HttpHeaders
 
 private val ClientAuthenticationFlowContext.issuer: Url
     get() = Url.parse(Urls.realmIssuer(session.context.uri.baseUri, realm.name))
+
+private val ClientAuthenticationFlowContext.hasFormParameters: Boolean
+    get() = httpRequest.httpHeaders.mediaType?.isCompatible(MediaType.APPLICATION_FORM_URLENCODED_TYPE) ?: false
 
 private val ClientAuthenticationFlowContext.formParameters: MultivaluedMap<String, String>
     get() = httpRequest.decodedFormParameters
