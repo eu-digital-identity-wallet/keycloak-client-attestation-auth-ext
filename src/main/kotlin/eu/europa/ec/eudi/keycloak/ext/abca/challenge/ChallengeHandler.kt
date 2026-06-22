@@ -15,10 +15,10 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.challenge
 
-import arrow.core.Either
-import arrow.core.raise.either
-import arrow.core.raise.ensureNotNull
-import arrow.core.raise.option
+import arrow.core.raise.context.Raise
+import arrow.core.raise.context.ensureNotNull
+import arrow.core.raise.context.option
+import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,10 +35,8 @@ import kotlin.random.asKotlinRandom
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-sealed interface ChallengeValidationError {
-    @JvmInline
-    value class UseAttestationChallenge(val challenge: Challenge) : ChallengeValidationError
-}
+@JvmInline
+value class UseAttestationChallenge(val challenge: Challenge)
 
 interface ChallengeHandler : Provider {
 
@@ -50,7 +48,8 @@ interface ChallengeHandler : Provider {
     /**
      * Checks if [value] corresponds to a valid [Challenge]. If valid, the matched Challenge is invalidated.
      */
-    suspend fun validate(value: String): Either<ChallengeValidationError, Challenge>
+    context(_: Raise<UseAttestationChallenge>)
+    suspend fun validate(value: String): Challenge
 
     override fun close() {
         // no-op
@@ -118,7 +117,8 @@ class DefaultChallengeHandler(
         challenge
     }
 
-    override suspend fun validate(value: String): Either<ChallengeValidationError, Challenge> = either {
+    context(_: Raise<UseAttestationChallenge>)
+    override suspend fun validate(value: String): Challenge {
         val challenge = withContext(Dispatchers.IO) {
             DefaultChallengeHandlerMutex.withLock {
                 with(session.singleUseObjects()) {
@@ -131,8 +131,8 @@ class DefaultChallengeHandler(
             }
         }
 
-        ensureNotNull(challenge) {
-            ChallengeValidationError.UseAttestationChallenge(generateNew())
+        return ensureNotNull(challenge) {
+            UseAttestationChallenge(generateNew())
         }
     }
 

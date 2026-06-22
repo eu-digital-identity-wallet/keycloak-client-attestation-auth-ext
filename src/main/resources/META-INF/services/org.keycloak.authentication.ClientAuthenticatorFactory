@@ -1,1 +1,1 @@
-eu.europa.ec.eudi.keycloak.ext.abca.authenticator.AttestationBasedClientAuthenticator
+eu.europa.ec.eudi.keycloak.ext.abca.authenticator.AttestationBasedClientAuthenticatorFactory

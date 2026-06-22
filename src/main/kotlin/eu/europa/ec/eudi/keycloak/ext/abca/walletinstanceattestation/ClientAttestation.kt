@@ -56,6 +56,9 @@ data class ClientAttestation private constructor(
     val signingKey: ECPublicKey
         get() = X509CertUtils.parseWithException(jwt.header.x509CertChain.first().decode()).publicKey as ECPublicKey
 
+    val signatureAlgorithm: JWSAlgorithm
+        get() = jwt.header.algorithm
+
     val confirmationKey: ECPublicKey
         get() = claims.confirmation.jwk.toECKey().toECPublicKey()
 
@@ -140,6 +143,8 @@ data class ClientAttestationPoP private constructor(
     val jwt: SignedJWT,
     val claims: ClientAttestationPoPClaims,
 ) {
+    val signatureAlgorithm: JWSAlgorithm
+        get() = jwt.header.algorithm
 
     companion object {
         fun ofOrNull(value: String): ClientAttestationPoP? = tryParse(value).getOrNull()
