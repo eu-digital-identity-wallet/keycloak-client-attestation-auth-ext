@@ -15,7 +15,9 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation
 
+import arrow.core.raise.context.result
 import com.nimbusds.jwt.SignedJWT
+import eu.europa.ec.eudi.keycloak.ext.abca.util.mapError
 import eu.europa.ec.eudi.statium.*
 import io.ktor.client.*
 import kotlin.time.Clock
@@ -36,11 +38,11 @@ class ClientStatusValidator(
             clock,
             httpClient,
             verifyStatusListTokenSignature = { serializedStatusListToken, _ ->
-                val statusListToken = SignedJWT.parse(serializedStatusListToken)
-                if (isSignatureValid(statusListToken)) {
-                    Result.success(Unit)
-                } else {
-                    Result.failure(IllegalArgumentException("Status List Token signature is not valid"))
+                result {
+                    val statusListToken = SignedJWT.parse(serializedStatusListToken)
+                    require(isSignatureValid(statusListToken)) { "Invalid signature" }
+                }.mapError {
+                    IllegalArgumentException("Status List Token signature is not valid", it)
                 }
             },
             skew,
