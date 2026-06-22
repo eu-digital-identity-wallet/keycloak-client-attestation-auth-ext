@@ -35,6 +35,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensureNotNull
 import eu.europa.ec.eudi.keycloak.ext.abca.util.dropNanos
+import eu.europa.ec.eudi.keycloak.ext.abca.util.isEnabled
 import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestation
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestationPoP
@@ -113,6 +114,9 @@ class AttestationBasedClientAuthenticator(
         val clientAttestation = ensureNotNull(ClientAttestation.ofOrNull(header)) {
             ClientAuthenticationError.InvalidClientAttestation
         }
+        ensure(session.isEnabled(clientAttestation.signatureAlgorithm)) {
+            ClientAuthenticationError.InvalidClientAttestationSignatureAlgorithm
+        }
 
         val client = ensureNotNull(session.clients().getClientByClientId(realm, clientAttestation.claims.subject.value)) {
             ClientAuthenticationError.ClientNotFound
@@ -185,6 +189,9 @@ class AttestationBasedClientAuthenticator(
         val clientAttestationPoP = ensureNotNull(ClientAttestationPoP.ofOrNull(header)) {
             ClientAuthenticationError.InvalidClientAttestationPoP
         }
+        ensure(session.isEnabled(clientAttestationPoP.signatureAlgorithm)) {
+            ClientAuthenticationError.InvalidClientAttestationPoPSignatureAlgorithm
+        }
 
         val signatureValid = catch({
             clientAttestationPoP.jwt.verify(ECDSAVerifier(context.clientAttestation.confirmationKey))
@@ -227,6 +234,7 @@ class AttestationBasedClientAuthenticator(
         val (error, errorDescription) = when (clientAuthenticationError) {
             ClientAuthenticationError.MissingClientAttestation -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER} header"
             ClientAuthenticationError.InvalidClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Wallet Instance Attestation"
+            ClientAuthenticationError.InvalidClientAttestationSignatureAlgorithm -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation must signed with one of the JWS Algorithms advertised in ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SUPPORTED_SIGNING_ALGORITHMS}"
             ClientAuthenticationError.ExpiredClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is expired"
             ClientAuthenticationError.InactiveClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is not active"
             ClientAuthenticationError.ClientNotFound -> Errors.INVALID_CLIENT to "Client not found"
@@ -238,6 +246,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.ClientIdMismatch -> Errors.INVALID_REQUEST to "${OAuth2Constants.CLIENT_ID} form parameter does not match the subject of Wallet Instance Attestation"
             ClientAuthenticationError.MissingClientAttestationPoP -> Errors.INVALID_REQUEST to "Missing ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER} header"
             ClientAuthenticationError.InvalidClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Client Attestation PoP"
+            ClientAuthenticationError.InvalidClientAttestationPoPSignatureAlgorithm -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Client Attestation PoP must be signed with one of the JWS Algorithms advertised in ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SUPPORTED_SIGNING_ALGORITHMS}"
             ClientAuthenticationError.InvalidClientAttestationPoPSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The signature of the Client Attestation PoP is not valid"
             ClientAuthenticationError.InvalidClientAttestationPoPIssuer -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Attestation PoP is not valid"
             ClientAuthenticationError.InvalidClientAttestationPoPAudience -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The audience of the Client Attestation PoP is not valid"
@@ -280,6 +289,7 @@ class AttestationBasedClientAuthenticator(
 private sealed interface ClientAuthenticationError {
     data object MissingClientAttestation : ClientAuthenticationError
     data object InvalidClientAttestation : ClientAuthenticationError
+    data object InvalidClientAttestationSignatureAlgorithm : ClientAuthenticationError
     data object ExpiredClientAttestation : ClientAuthenticationError
     data object InactiveClientAttestation : ClientAuthenticationError
     data object ClientNotFound : ClientAuthenticationError
@@ -291,6 +301,7 @@ private sealed interface ClientAuthenticationError {
     data object ClientIdMismatch : ClientAuthenticationError
     data object MissingClientAttestationPoP : ClientAuthenticationError
     data object InvalidClientAttestationPoP : ClientAuthenticationError
+    data object InvalidClientAttestationPoPSignatureAlgorithm : ClientAuthenticationError
     data object InvalidClientAttestationPoPSignature : ClientAuthenticationError
     data object InvalidClientAttestationPoPIssuer : ClientAuthenticationError
     data object InvalidClientAttestationPoPAudience : ClientAuthenticationError
@@ -308,7 +319,7 @@ private class ClientAuthenticatorConfig(private val client: ClientModel, private
 
     val clockSkew: Duration
         get() = get(CLOCK_SKEW)
-            ?.toInt()
+            ?.toIntOrNull()
             ?.seconds
             ?.takeIf { it >= Duration.ZERO }
             ?: Duration.ZERO
@@ -382,7 +393,8 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .property()
         .name(ClientAuthenticatorConfig.CLOCK_SKEW)
         .type(ProviderConfigProperty.INTEGER_TYPE)
-        .label("Allowed clock skew in seconds. When negative, clock skew is 0.")
+        .label("Clock Skew")
+        .helpText("Allowed clock skew in seconds. When negative, clock skew is 0.")
         .add()
         .build()
 

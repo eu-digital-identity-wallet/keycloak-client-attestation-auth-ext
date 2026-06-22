@@ -45,6 +45,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.Status
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.StatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
 import eu.europa.ec.eudi.keycloak.ext.abca.util.dropNanos
+import eu.europa.ec.eudi.keycloak.ext.abca.util.isEnabled
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.Confirmation
 import io.ktor.client.*
@@ -64,10 +65,12 @@ import org.junit.jupiter.api.BeforeEach
 import org.keycloak.OAuth2Constants
 import org.keycloak.authentication.AuthenticationFlowError
 import org.keycloak.authentication.ClientAuthenticationFlowContext
+import org.keycloak.crypto.SignatureProvider
 import org.keycloak.events.Errors
 import org.keycloak.events.EventBuilder
 import org.keycloak.http.HttpRequest
 import org.keycloak.models.*
+import org.keycloak.provider.ProviderFactory
 import org.keycloak.representations.idm.OAuth2ErrorRepresentation
 import java.net.URI
 import java.security.cert.X509Certificate
@@ -91,6 +94,7 @@ class AttestationBasedClientAuthenticatorTest {
     private val httpRequest = mockk<HttpRequest>()
     private val httpHeaders = mockk<HttpHeaders>()
     private val session = mockk<KeycloakSession>()
+    private val sessionFactory = mockk<KeycloakSessionFactory>()
     private val clients = mockk<ClientProvider>()
     private val realm = mockk<RealmModel>()
     private val keycloakContext = mockk<KeycloakContext>()
@@ -104,6 +108,9 @@ class AttestationBasedClientAuthenticatorTest {
         every { httpRequest.httpHeaders } returns httpHeaders
         every { httpHeaders.mediaType } returns MediaType.APPLICATION_FORM_URLENCODED_TYPE
         every { context.session } returns session
+        every { session.keycloakSessionFactory } returns sessionFactory
+        every { sessionFactory.getProviderFactory(SignatureProvider::class.java, JWSAlgorithm.ES256.name) } returns mockk<ProviderFactory<SignatureProvider>>()
+        every { session.getProvider(SignatureProvider::class.java, JWSAlgorithm.ES256.name) } returns mockk<SignatureProvider>()
         every { session.clients() } returns clients
         every { context.realm } returns realm
         every { realm.isEnabled } returns true
@@ -325,6 +332,32 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Not a valid Wallet Instance Attestation",
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation is signed with a non-advertised jws algorithm`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+
+        every { sessionFactory.getProviderFactory(SignatureProvider::class.java, JWSAlgorithm.ES256.name) } returns null
+        every { session.getProvider(SignatureProvider::class.java, JWSAlgorithm.ES256.name) } returns null
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            null,
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Wallet Instance Attestation must signed with one of the JWS Algorithms advertised in ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SUPPORTED_SIGNING_ALGORITHMS}",
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
         }
@@ -664,6 +697,47 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Not a valid Client Attestation PoP",
+            httpClient,
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation pop is signed with a non-advertised jws algorithm`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_384).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val clientAttestationPoP = clientAttestationPoP(
+            algorithm = JWSAlgorithm.ES384,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val httpClient = HttpClient(
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            statusListTokenRequestHandler(),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
+        )
+
+        val client = client()
+        every { clients.getClientByClientId(realm, "eudiw") } returns client
+        every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
+
+        every { sessionFactory.getProviderFactory(SignatureProvider::class.java, JWSAlgorithm.ES384.name) } returns null
+        every { session.getProvider(SignatureProvider::class.java, JWSAlgorithm.ES384.name) } returns null
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Client Attestation PoP must be signed with one of the JWS Algorithms advertised in ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_SUPPORTED_SIGNING_ALGORITHMS}",
             httpClient,
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
