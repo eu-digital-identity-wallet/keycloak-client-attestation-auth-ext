@@ -65,6 +65,7 @@ import org.slf4j.LoggerFactory
 import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -129,6 +130,13 @@ class AttestationBasedClientAuthenticator(
         val now = clock.now().dropNanos()
         ensure(now < (clientAttestation.claims.expiresAt + config.clockSkew)) {
             ClientAuthenticationError.ExpiredClientAttestation
+        }
+
+        if (null != clientAttestation.claims.issuedAt) {
+            val clientAttestationIssuedAfter = now - config.clientAttestationMaxAge
+            ensure(clientAttestation.claims.issuedAt >= (clientAttestationIssuedAfter - config.clockSkew)) {
+                ClientAuthenticationError.StaleClientAttestation
+            }
         }
 
         if (null != clientAttestation.claims.notBefore) {
@@ -237,6 +245,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.InvalidClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Not a valid Wallet Instance Attestation"
             ClientAuthenticationError.InvalidClientAttestationSignatureAlgorithm -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation must signed with one of the JWS Algorithms advertised in ${AttestationBasedClientAuthentication.CLIENT_ATTESTATION_SUPPORTED_SIGNING_ALGORITHMS}"
             ClientAuthenticationError.ExpiredClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is expired"
+            ClientAuthenticationError.StaleClientAttestation -> AttestationBasedClientAuthentication.USE_FRESH_ATTESTATION_ERROR to "Stale Wallet Instance Attestation"
             ClientAuthenticationError.InactiveClientAttestation -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Wallet Instance Attestation is not active"
             ClientAuthenticationError.ClientNotFound -> Errors.INVALID_CLIENT to "Client not found"
             ClientAuthenticationError.InactiveClient -> Errors.INVALID_CLIENT to "Client is not active"
@@ -251,7 +260,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.InvalidClientAttestationPoPSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The signature of the Client Attestation PoP is not valid"
             ClientAuthenticationError.InvalidClientAttestationPoPIssuer -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The issuer of the Client Attestation PoP is not valid"
             ClientAuthenticationError.InvalidClientAttestationPoPAudience -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The audience of the Client Attestation PoP is not valid"
-            ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Client Attestation PoP is too old"
+            ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Stale Client Attestation PoP"
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
             ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
         }
@@ -292,6 +301,7 @@ private sealed interface ClientAuthenticationError {
     data object InvalidClientAttestation : ClientAuthenticationError
     data object InvalidClientAttestationSignatureAlgorithm : ClientAuthenticationError
     data object ExpiredClientAttestation : ClientAuthenticationError
+    data object StaleClientAttestation : ClientAuthenticationError
     data object InactiveClientAttestation : ClientAuthenticationError
     data object ClientNotFound : ClientAuthenticationError
     data object InactiveClient : ClientAuthenticationError
@@ -325,6 +335,13 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.takeIf { it >= Duration.ZERO }
             ?: DEFAULT_CLOCK_SKEW
 
+    val clientAttestationMaxAge: Duration
+        get() = get(CLIENT_ATTESTATION_MAX_AGE)
+            ?.toIntOrNull()
+            ?.seconds
+            ?.takeIf { it >= Duration.ZERO }
+            ?: DEFAULT_CLIENT_ATTESTATION_MAX_AGE
+
     val clientAttestationPoPMaxAge: Duration
         get() = get(CLIENT_ATTESTATION_POP_MAX_AGE)
             ?.toIntOrNull()
@@ -339,6 +356,9 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
 
         const val CLOCK_SKEW = "clock.skew"
         val DEFAULT_CLOCK_SKEW = Duration.ZERO
+
+        const val CLIENT_ATTESTATION_MAX_AGE = "clientAttestation.maxAge"
+        val DEFAULT_CLIENT_ATTESTATION_MAX_AGE = 24.hours
 
         const val CLIENT_ATTESTATION_POP_MAX_AGE = "clientAttestationPoP.maxAge"
         val DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE = 15.seconds
@@ -409,6 +429,13 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .defaultValue(0)
         .label("Clock Skew")
         .helpText("Allowed clock skew in seconds. When negative, clock skew is 0.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE)
+        .type(ProviderConfigProperty.INTEGER_TYPE)
+        .defaultValue(86400)
+        .label("Client Attestation Max Age")
+        .helpText("Maximum age of the Client Attestation in seconds. When 0, or negative, defaults to 24 hours.")
         .add()
         .property()
         .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE)

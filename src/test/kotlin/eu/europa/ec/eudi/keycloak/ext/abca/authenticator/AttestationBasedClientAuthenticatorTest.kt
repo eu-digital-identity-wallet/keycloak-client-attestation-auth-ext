@@ -78,6 +78,7 @@ import kotlin.test.*
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -220,6 +221,36 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
+    fun `verify successful authentication when client attestation stale but withing allowed clock skew`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            issuedAt = clock.now().dropNanos() - (1.hours + 10.seconds),
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clockSkew = 15.seconds, clientAttestationMaxAge = 1.hours)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    @Test
     fun `verify successful authentication when client attestation inactive but withing allowed clock skew`() = runTest {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
@@ -250,7 +281,7 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
-    fun `verify successful authentication when client attestation pop too old but withing allowed clock skew`() = runTest {
+    fun `verify successful authentication when client attestation pop stale but withing allowed clock skew`() = runTest {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
         val clientAttestation = clientAttestation(
@@ -495,6 +526,34 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Wallet Instance Attestation is not active",
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation is stale`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            issuedAt = clock.now().dropNanos() - 25.hours,
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+
+        val client = client()
+        every { clients.getClientByClientId(realm, "eudiw") } returns client
+        every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            null,
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.USE_FRESH_ATTESTATION_ERROR,
+            "Stale Wallet Instance Attestation",
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
         }
@@ -923,7 +982,7 @@ class AttestationBasedClientAuthenticatorTest {
             clientAttestationPoP.serialize(),
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Client Attestation PoP is too old",
+            "Stale Client Attestation PoP",
             httpClient,
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
@@ -1209,6 +1268,7 @@ private fun client(
     public: Boolean = true,
     trustValidatorServiceUrl: Url? = Url.parse("https://dev.trust-validator.eudiw.dev/trust"),
     clockSkew: Duration = ClientAuthenticatorConfig.DEFAULT_CLOCK_SKEW,
+    clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
 ): ClientModel {
     val client = mockk<ClientModel>()
@@ -1217,6 +1277,7 @@ private fun client(
     every { client.isPublicClient } returns public
     every { client.getAttribute(ClientAuthenticatorConfig.TRUST_VALIDATOR_SERVICE_URL) } returns trustValidatorServiceUrl?.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLOCK_SKEW) } returns clockSkew.inWholeSeconds.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     return client
 }
