@@ -29,7 +29,6 @@ dependencies {
     implementation(enforcedPlatform(libs.ktor.bom))
     implementation(enforcedPlatform(libs.arrow.stack))
     implementation(enforcedPlatform(libs.keycloak.dependencies.server.all))
-    testImplementation(enforcedPlatform(libs.mockito.bom))
     testImplementation(enforcedPlatform(libs.jersey.bom))
 
     implementation(libs.kotlin.stdlib)
@@ -53,15 +52,10 @@ dependencies {
     testImplementation(libs.keycloak.server.spi)
     testImplementation(libs.keycloak.services)
 
-    testImplementation(libs.mockito.core)
-    testImplementation(libs.mockito.kotlin)
-
+    testImplementation(libs.mockk)
     testImplementation(libs.jersey.common)
 
     implementation(libs.nimbus.jose.jwt)
-    testImplementation(libs.bouncycastle.bkpkix)
-    testImplementation(libs.nimbus.oauth2)
-
     implementation(libs.statium)
     implementation(libs.uri.kmp)
 }
@@ -81,6 +75,8 @@ kotlin {
             "kotlin.time.ExperimentalTime",
             "kotlin.io.encoding.ExperimentalEncodingApi",
             "kotlinx.serialization.ExperimentalSerializationApi",
+            "kotlin.contracts.ExperimentalContracts",
+            "kotlin.uuid.ExperimentalUuidApi",
         )
         freeCompilerArgs.addAll(
             "-Xconsistent-data-class-copy-visibility",

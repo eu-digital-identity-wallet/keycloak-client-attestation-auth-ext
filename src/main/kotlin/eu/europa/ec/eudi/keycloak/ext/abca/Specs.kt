@@ -61,7 +61,7 @@ object TS3 {
 }
 
 /**
- * [SON Web Token (JWT)](https://www.rfc-editor.org/info/rfc7519/)
+ * [JSON Web Token (JWT)](https://www.rfc-editor.org/info/rfc7519/)
  */
 object RFC7519 {
     const val ISSUER_CLAIM = "iss"
