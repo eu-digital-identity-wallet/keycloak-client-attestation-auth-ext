@@ -63,6 +63,7 @@ import org.keycloak.services.Urls
 import org.slf4j.LoggerFactory
 import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -74,28 +75,30 @@ class AttestationBasedClientAuthenticator(
         runBlocking {
             with(context) {
                 effect {
-                    val (clientAttestation, client) = ensureValidClientAttestationAndActiveClient()
+                    val context = ensureValidClientAttestation()
 
                     if (hasFormParameters) {
                         val clientId = formParameters.getFirst(OAuth2Constants.CLIENT_ID)
-                        if (client.isPublicClient) {
+                        if (context.client.isPublicClient) {
                             ensureNotNull(clientId) {
                                 ClientAuthenticationError.MissingClientId
                             }
                         }
                         if (null != clientId) {
-                            ensure(clientAttestation.claims.subject.value == clientId) {
+                            ensure(context.clientAttestation.claims.subject.value == clientId) {
                                 ClientAuthenticationError.ClientIdMismatch
                             }
                         }
                     }
 
-                    ensureValidClientAttestationPoP(clientAttestation)
+                    context(context) {
+                        ensureValidClientAttestationPoP()
+                    }
 
-                    log.info("Successfully authenticated Client: {}", client.clientId)
-                    this@with.client = client
-                    event.client(client)
-                    session.clientStatus = clientAttestation.claims.clientStatus
+                    log.info("Successfully authenticated Client: {}", context.client.clientId)
+                    this@with.client = context.client
+                    event.client(context.client)
+                    session.clientStatus = context.clientAttestation.claims.clientStatus
                     success()
                 }.getOrElse { failure(it) }
             }
@@ -103,23 +106,12 @@ class AttestationBasedClientAuthenticator(
     }
 
     context(_: Raise<ClientAuthenticationError>)
-    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestationAndActiveClient(): Pair<ClientAttestation, ClientModel> {
+    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestation(): ClientAttestationContext {
         val header = ensureNotNull(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER)) {
             ClientAuthenticationError.MissingClientAttestation
         }
         val clientAttestation = ensureNotNull(ClientAttestation.ofOrNull(header)) {
             ClientAuthenticationError.InvalidClientAttestation
-        }
-
-        val now = clock.now().dropNanos()
-        ensure(now < clientAttestation.claims.expiresAt) {
-            ClientAuthenticationError.ExpiredClientAttestation
-        }
-
-        if (null != clientAttestation.claims.notBefore) {
-            ensure(now >= clientAttestation.claims.notBefore) {
-                ClientAuthenticationError.InactiveClientAttestation
-            }
         }
 
         val client = ensureNotNull(session.clients().getClientByClientId(realm, clientAttestation.claims.subject.value)) {
@@ -128,8 +120,19 @@ class AttestationBasedClientAuthenticator(
         ensure(client.isEnabled) {
             ClientAuthenticationError.InactiveClient
         }
-
         val config = ClientAuthenticatorConfig(client, authenticatorConfig)
+
+        val now = clock.now().dropNanos()
+        ensure(now < (clientAttestation.claims.expiresAt + config.clockSkew)) {
+            ClientAuthenticationError.ExpiredClientAttestation
+        }
+
+        if (null != clientAttestation.claims.notBefore) {
+            ensure(now >= (clientAttestation.claims.notBefore - config.clockSkew)) {
+                ClientAuthenticationError.InactiveClientAttestation
+            }
+        }
+
         ensure(config.trustValidator.isTrusted(clientAttestation.x5c, VerificationContext.WALLET_INSTANCE_ATTESTATION)) {
             ClientAuthenticationError.ClientAttestationIssuerNotTrusted
         }
@@ -146,8 +149,14 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.InvalidClientStatus
         }
 
-        return clientAttestation to client
+        return ClientAttestationContext(clientAttestation, client, config)
     }
+
+    private data class ClientAttestationContext(
+        val clientAttestation: ClientAttestation,
+        val client: ClientModel,
+        val config: ClientAuthenticatorConfig,
+    )
 
     private val ClientAuthenticatorConfig.trustValidator: TrustValidator
         get() {
@@ -156,7 +165,7 @@ class AttestationBasedClientAuthenticator(
         }
 
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
-        get() = ClientStatusValidator(httpClient, clock, 15.seconds) { statusListToken ->
+        get() = ClientStatusValidator(httpClient, clock, clockSkew) { statusListToken ->
             option {
                 ensure(statusListToken.header.algorithm in TS3.ALLOWED_ALGORITHMS)
                 val x5c = ensureNotNull(statusListToken.header.x509CertChain?.toNonEmptyListOrNull())
@@ -168,10 +177,8 @@ class AttestationBasedClientAuthenticator(
             }.getOrElse { false }
         }
 
-    context(_: Raise<ClientAuthenticationError>)
-    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestationPoP(
-        clientAttestation: ClientAttestation,
-    ): ClientAttestationPoP {
+    context(_: Raise<ClientAuthenticationError>, context: ClientAttestationContext)
+    private suspend fun ClientAuthenticationFlowContext.ensureValidClientAttestationPoP(): ClientAttestationPoP {
         val header = ensureNotNull(httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER)) {
             ClientAuthenticationError.MissingClientAttestationPoP
         }
@@ -180,13 +187,13 @@ class AttestationBasedClientAuthenticator(
         }
 
         val signatureValid = catch({
-            clientAttestationPoP.jwt.verify(ECDSAVerifier(clientAttestation.confirmationKey))
+            clientAttestationPoP.jwt.verify(ECDSAVerifier(context.clientAttestation.confirmationKey))
         }) { false }
         ensure(signatureValid) {
             ClientAuthenticationError.InvalidClientAttestationPoPSignature
         }
 
-        ensure(clientAttestation.claims.subject == clientAttestationPoP.claims.issuer) {
+        ensure(context.clientAttestation.claims.subject == clientAttestationPoP.claims.issuer) {
             ClientAuthenticationError.InvalidClientAttestationPoPIssuer
         }
 
@@ -208,7 +215,7 @@ class AttestationBasedClientAuthenticator(
         }
 
         if (null != clientAttestationPoP.claims.notBefore) {
-            ensure(now >= clientAttestationPoP.claims.notBefore) {
+            ensure(now >= (clientAttestationPoP.claims.notBefore - context.config.clockSkew)) {
                 ClientAuthenticationError.InactiveClientAttestationPoP
             }
         }
@@ -295,12 +302,22 @@ private sealed interface ClientAuthenticationError {
 private class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
 
     val trustValidatorServiceUrl: Url?
-        get() = get(TRUST_VALIDATOR_SERVICE_URL)?.let { Url.parse(it) }
+        get() = get(TRUST_VALIDATOR_SERVICE_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { Url.parse(it) }
+
+    val clockSkew: Duration
+        get() = get(CLOCK_SKEW)
+            ?.toInt()
+            ?.seconds
+            ?.takeIf { it >= Duration.ZERO }
+            ?: Duration.ZERO
 
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
 
     companion object {
         const val TRUST_VALIDATOR_SERVICE_URL = "trustValidator.serviceUrl"
+        const val CLOCK_SKEW = "clock.skew"
     }
 }
 
@@ -360,7 +377,12 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .type(ProviderConfigProperty.STRING_TYPE)
         .defaultValue(null)
         .label("Trust Validator Service URL")
-        .helpText("URL of the Trust Validator Service to use for checking whether the Client Attestation JWT Issuer is trusted or not.")
+        .helpText("URL of the Trust Validator Service. When blank, no trust verification is performed.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLOCK_SKEW)
+        .type(ProviderConfigProperty.INTEGER_TYPE)
+        .label("Allowed clock skew in seconds. When negative, clock skew is 0.")
         .add()
         .build()
 

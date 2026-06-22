@@ -73,8 +73,10 @@ import java.net.URI
 import java.security.cert.X509Certificate
 import kotlin.test.*
 import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 import io.ktor.http.HttpHeaders as KtorHttpHeaders
@@ -137,10 +139,27 @@ class AttestationBasedClientAuthenticatorTest {
             signer = ECDSASigner(walletInstanceKey),
         )
 
-        every { httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER) } returns clientAttestation.serialize()
-        every { httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER) } returns clientAttestationPoP.serialize()
-
         val client = client()
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    private fun testExpectingSuccess(
+        clientAttestation: String,
+        clientAttestationPoP: String,
+        clientStatus: ClientStatus,
+        challenge: Challenge,
+        client: ClientModel,
+    ) = runTest {
+        every { httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_HEADER) } returns clientAttestation
+        every { httpHeaders.getHeaderString(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_POP_HEADER) } returns clientAttestationPoP
+
         every { clients.getClientByClientId(realm, "eudiw") } returns client
         every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
 
@@ -161,6 +180,96 @@ class AttestationBasedClientAuthenticatorTest {
         verify { event.client(client) }
         verify { session.setAttribute(TS3.CLIENT_STATUS_CLAIM, clientStatus) }
         verify { context.success() }
+    }
+
+    @Test
+    fun `verify successful authentication when client attestation expired but withing allowed clock skew`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            expiresAt = clock.now().dropNanos() - 5.seconds,
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clockSkew = 15.seconds)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    @Test
+    fun `verify successful authentication when client attestation inactive but withing allowed clock skew`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            notBefore = clock.now().dropNanos() + 5.seconds,
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clockSkew = 15.seconds)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    @Test
+    fun `verify successful authentication when client attestation pop inactive but withing allowed clock skew`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            notBefore = clock.now().dropNanos() + 5.seconds,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clockSkew = 15.seconds)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
     }
 
     @Test
@@ -222,54 +331,6 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
-    fun `authentication fails when client attestation is expired`() {
-        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
-        val clientStatus = clientStatus()
-        val clientAttestation = clientAttestation(
-            expiresAt = clock.now().dropNanos() - 31.days,
-            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
-            clientStatus = clientStatus,
-            algorithm = JWSAlgorithm.ES256,
-            x5c = nonEmptyListOf(walletProviderCertificate),
-            signer = ECDSASigner(walletProviderKey),
-        )
-
-        testExpectingFailure(
-            clientAttestation.serialize(),
-            null,
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Wallet Instance Attestation is expired",
-        ) {
-            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
-        }
-    }
-
-    @Test
-    fun `authentication fails when client attestation is not active`() {
-        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
-        val clientStatus = clientStatus()
-        val clientAttestation = clientAttestation(
-            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
-            notBefore = clock.now().dropNanos() + 5.minutes,
-            clientStatus = clientStatus,
-            algorithm = JWSAlgorithm.ES256,
-            x5c = nonEmptyListOf(walletProviderCertificate),
-            signer = ECDSASigner(walletProviderKey),
-        )
-
-        testExpectingFailure(
-            clientAttestation.serialize(),
-            null,
-            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
-            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "Wallet Instance Attestation is not active",
-        ) {
-            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
-        }
-    }
-
-    @Test
     fun `authentication fails when client is not found`() {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
@@ -315,6 +376,62 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.CLIENT_DISABLED,
             Errors.INVALID_CLIENT,
             "Client is not active",
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation is expired`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            expiresAt = clock.now().dropNanos() - 31.days,
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+
+        val client = client()
+        every { clients.getClientByClientId(realm, "eudiw") } returns client
+        every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            null,
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Wallet Instance Attestation is expired",
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation is not active`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            notBefore = clock.now().dropNanos() + 5.minutes,
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+
+        val client = client()
+        every { clients.getClientByClientId(realm, "eudiw") } returns client
+        every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            null,
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "Wallet Instance Attestation is not active",
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
         }
@@ -987,12 +1104,14 @@ private fun client(
     enabled: Boolean = true,
     public: Boolean = true,
     trustValidatorServiceUrl: Url? = Url.parse("https://dev.trust-validator.eudiw.dev/trust"),
+    clockSkew: Duration = Duration.ZERO,
 ): ClientModel {
     val client = mockk<ClientModel>()
     every { client.clientId } returns clientId
     every { client.isEnabled } returns enabled
     every { client.isPublicClient } returns public
     every { client.getAttribute("trustValidator.serviceUrl") } returns trustValidatorServiceUrl?.toString()
+    every { client.getAttribute("clock.skew") } returns clockSkew.inWholeSeconds.toString()
     return client
 }
 
