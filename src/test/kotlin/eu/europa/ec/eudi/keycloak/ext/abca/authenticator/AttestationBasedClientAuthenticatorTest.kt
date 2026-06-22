@@ -250,6 +250,36 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
+    fun `verify successful authentication when client attestation pop too old but withing allowed clock skew`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            issuedAt = clock.now().dropNanos() - 12.seconds,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clockSkew = 5.seconds, clientAttestationPoPMaxAge = 10.seconds)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    @Test
     fun `verify successful authentication when client attestation pop inactive but withing allowed clock skew`() = runTest {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
@@ -1178,14 +1208,16 @@ private fun client(
     enabled: Boolean = true,
     public: Boolean = true,
     trustValidatorServiceUrl: Url? = Url.parse("https://dev.trust-validator.eudiw.dev/trust"),
-    clockSkew: Duration = Duration.ZERO,
+    clockSkew: Duration = ClientAuthenticatorConfig.DEFAULT_CLOCK_SKEW,
+    clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
 ): ClientModel {
     val client = mockk<ClientModel>()
     every { client.clientId } returns clientId
     every { client.isEnabled } returns enabled
     every { client.isPublicClient } returns public
-    every { client.getAttribute("trustValidator.serviceUrl") } returns trustValidatorServiceUrl?.toString()
-    every { client.getAttribute("clock.skew") } returns clockSkew.inWholeSeconds.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.TRUST_VALIDATOR_SERVICE_URL) } returns trustValidatorServiceUrl?.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLOCK_SKEW) } returns clockSkew.inWholeSeconds.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     return client
 }
 

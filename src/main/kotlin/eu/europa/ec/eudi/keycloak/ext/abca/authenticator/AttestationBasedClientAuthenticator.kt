@@ -209,7 +209,8 @@ class AttestationBasedClientAuthenticator(
         }
 
         val now = clock.now().dropNanos()
-        ensure(clientAttestationPoP.claims.issuedAt >= now - (2.minutes)) {
+        val clientAttestationPoPIssuedAfter = now - context.config.clientAttestationPoPMaxAge
+        ensure(clientAttestationPoP.claims.issuedAt >= (clientAttestationPoPIssuedAfter - context.config.clockSkew)) {
             ClientAuthenticationError.StaleClientAttestationPoP
         }
 
@@ -310,7 +311,7 @@ private sealed interface ClientAuthenticationError {
     data object InactiveClientAttestationPoP : ClientAuthenticationError
 }
 
-private class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
+class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
 
     val trustValidatorServiceUrl: Url?
         get() = get(TRUST_VALIDATOR_SERVICE_URL)
@@ -322,13 +323,25 @@ private class ClientAuthenticatorConfig(private val client: ClientModel, private
             ?.toIntOrNull()
             ?.seconds
             ?.takeIf { it >= Duration.ZERO }
-            ?: Duration.ZERO
+            ?: DEFAULT_CLOCK_SKEW
+
+    val clientAttestationPoPMaxAge: Duration
+        get() = get(CLIENT_ATTESTATION_POP_MAX_AGE)
+            ?.toIntOrNull()
+            ?.seconds
+            ?.takeIf { it.isPositive() }
+            ?: DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE
 
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
 
     companion object {
         const val TRUST_VALIDATOR_SERVICE_URL = "trustValidator.serviceUrl"
+
         const val CLOCK_SKEW = "clock.skew"
+        val DEFAULT_CLOCK_SKEW = Duration.ZERO
+
+        const val CLIENT_ATTESTATION_POP_MAX_AGE = "clientAttestationPoP.maxAge"
+        val DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE = 15.seconds
     }
 }
 
@@ -393,8 +406,16 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .property()
         .name(ClientAuthenticatorConfig.CLOCK_SKEW)
         .type(ProviderConfigProperty.INTEGER_TYPE)
+        .defaultValue(0)
         .label("Clock Skew")
         .helpText("Allowed clock skew in seconds. When negative, clock skew is 0.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE)
+        .type(ProviderConfigProperty.INTEGER_TYPE)
+        .defaultValue(15)
+        .label("Client Attestation PoP Max Age")
+        .helpText("Maximum age of the Client Attestation PoP in seconds. When 0, or negative, defaults to 15 seconds.")
         .add()
         .build()
 
