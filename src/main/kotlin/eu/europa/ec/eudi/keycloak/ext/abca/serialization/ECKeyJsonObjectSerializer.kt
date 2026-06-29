@@ -15,7 +15,7 @@
  */
 package eu.europa.ec.eudi.keycloak.ext.abca.serialization
 
-import com.nimbusds.jose.jwk.JWK
+import com.nimbusds.jose.jwk.ECKey
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -24,22 +24,22 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
-object JWKJsonObjectSerializer : KSerializer<JWK> {
+object ECKeyJsonObjectSerializer : KSerializer<ECKey> {
     private val serializer = JsonObject.serializer()
 
-    override val descriptor: SerialDescriptor = SerialDescriptor("JWKJsonObject", serializer.descriptor)
+    override val descriptor: SerialDescriptor = SerialDescriptor("ECKeyJsonObject", serializer.descriptor)
 
-    override fun serialize(encoder: Encoder, value: JWK) {
+    override fun serialize(encoder: Encoder, value: ECKey) {
         val serialized = Json.decodeFromString<JsonObject>(value.toJSONString())
         encoder.encodeSerializableValue(serializer, serialized)
     }
 
-    override fun deserialize(decoder: Decoder): JWK {
+    override fun deserialize(decoder: Decoder): ECKey {
         val serialized = decoder.decodeSerializableValue(serializer)
-        return JWK.parse(Json.encodeToString(serialized))
+        return ECKey.parse(Json.encodeToString(serialized))
     }
 }
 
-typealias JsonObjectJWK =
-    @Serializable(with = JWKJsonObjectSerializer::class)
-    JWK
+typealias JsonObjectECKey =
+    @Serializable(with = ECKeyJsonObjectSerializer::class)
+    ECKey
