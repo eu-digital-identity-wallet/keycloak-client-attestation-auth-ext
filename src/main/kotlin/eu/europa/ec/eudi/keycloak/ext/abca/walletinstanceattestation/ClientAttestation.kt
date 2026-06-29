@@ -26,7 +26,6 @@ import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.jwk.ECKey
-import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.keycloak.ext.abca.*
@@ -34,7 +33,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.Audience
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.EpochSecondsInstant
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.InstantEpochSecondsSerializer
-import eu.europa.ec.eudi.keycloak.ext.abca.serialization.JsonObjectJWK
+import eu.europa.ec.eudi.keycloak.ext.abca.serialization.JsonObjectECKey
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.Status
 import eu.europa.ec.eudi.keycloak.ext.abca.util.decodeAs
 import kotlinx.serialization.Required
@@ -60,7 +59,7 @@ data class ClientAttestation private constructor(
         get() = jwt.header.algorithm
 
     val confirmationKey: ECPublicKey
-        get() = claims.confirmation.jwk.toECKey().toECPublicKey()
+        get() = claims.confirmation.jwk.toECPublicKey()
 
     companion object {
         fun ofOrNull(value: String): ClientAttestation? = tryParse(value).getOrNull()
@@ -86,9 +85,6 @@ data class ClientAttestation private constructor(
             }
 
             val claims = jwt.jwtClaimsSet.decodeAs<WalletInstanceAttestationClaims>()
-            require(claims.confirmation.jwk is ECKey) {
-                "Confirmation JWK must be an EC public key"
-            }
 
             ClientAttestation(jwt, claims)
         }
@@ -115,15 +111,15 @@ data class WalletInstanceAttestationClaims(
 @Serializable
 @JsonIgnoreUnknownKeys
 data class Confirmation private constructor(
-    @Required @SerialName(RFC7800.JWK_METHOD_CLAIM) val jwk: JsonObjectJWK,
+    @Required @SerialName(RFC7800.JWK_METHOD_CLAIM) val jwk: JsonObjectECKey,
 ) {
     init {
         check(!jwk.isPrivate)
     }
 
     companion object {
-        fun ofOrNull(jwk: JWK): Confirmation? = jwk.takeIf { !it.isPrivate }?.let(::Confirmation)
-        fun of(jwk: JWK): Confirmation = ofOrNull(jwk) ?: throw IllegalArgumentException("jwk must not be private")
+        fun ofOrNull(jwk: ECKey): Confirmation? = jwk.takeIf { !it.isPrivate }?.let(::Confirmation)
+        fun of(jwk: ECKey): Confirmation = ofOrNull(jwk) ?: throw IllegalArgumentException("jwk must not be private")
     }
 }
 

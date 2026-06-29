@@ -45,7 +45,6 @@ import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.Status
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.StatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
 import eu.europa.ec.eudi.keycloak.ext.abca.util.dropNanos
-import eu.europa.ec.eudi.keycloak.ext.abca.util.isEnabled
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.Confirmation
 import io.ktor.client.*
