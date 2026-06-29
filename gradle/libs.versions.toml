@@ -13,7 +13,7 @@ jersey = "4.0.2"
 arrow = "2.2.2"
 dokka = "2.2.0"
 maven-publish = "0.37.0"
-dependency-check = "12.1.1"
+dependency-check = "12.2.2"
 uri-kmp = "0.0.21"
 mockk = "1.14.11"
 
