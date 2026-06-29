@@ -66,7 +66,6 @@ import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class AttestationBasedClientAuthenticator(
