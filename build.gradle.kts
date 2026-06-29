@@ -1,6 +1,9 @@
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinJvm
+import com.vanniktech.maven.publish.SourcesJar
 import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import java.net.URI
 
@@ -60,29 +63,31 @@ dependencies {
     implementation(libs.uri.kmp)
 }
 
-java {
-    sourceCompatibility = JavaVersion.toVersion(libs.versions.java.get())
-}
-
 kotlin {
     jvmToolchain {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
         vendor = JvmVendorSpec.ADOPTIUM
+        implementation = JvmImplementation.VENDOR_SPECIFIC
     }
-    compilerOptions {
-        apiVersion = KotlinVersion.DEFAULT
-        optIn.addAll(
-            "kotlin.time.ExperimentalTime",
-            "kotlin.io.encoding.ExperimentalEncodingApi",
-            "kotlinx.serialization.ExperimentalSerializationApi",
-            "kotlin.contracts.ExperimentalContracts",
-            "kotlin.uuid.ExperimentalUuidApi",
-        )
-        freeCompilerArgs.addAll(
-            "-Xconsistent-data-class-copy-visibility",
-            "-Xcontext-parameters",
-            "-Xannotation-default-target=param-property",
-        )
+
+    target {
+        compilerOptions {
+            javaParameters = true
+            jvmDefault = JvmDefaultMode.ENABLE
+            jvmTarget = JvmTarget.fromTarget(libs.versions.java.get())
+            apiVersion = KotlinVersion.DEFAULT
+            languageVersion = KotlinVersion.DEFAULT
+            optIn.addAll(
+                "kotlinx.serialization.ExperimentalSerializationApi",
+                "kotlin.contracts.ExperimentalContracts",
+                "kotlin.uuid.ExperimentalUuidApi",
+            )
+            freeCompilerArgs.addAll(
+                "-Xconsistent-data-class-copy-visibility",
+                "-Xcontext-parameters",
+                "-Xannotation-default-target=param-property",
+            )
+        }
     }
 }
 
@@ -141,7 +146,7 @@ dokka {
 }
 
 mavenPublishing {
-    configure(KotlinJvm(javadocJar = JavadocJar.Dokka(tasks.dokkaGeneratePublicationHtml), sourcesJar = true))
+    configure(KotlinJvm(JavadocJar.Dokka(tasks.dokkaGeneratePublicationHtml), SourcesJar.Sources()))
 
     pom {
         ciManagement {
@@ -161,7 +166,7 @@ dependencyCheck {
     formats = mutableListOf("XML", "HTML")
 
     nvd {
-        apiKey = System.getenv("NVD_API_KEY") ?: properties["nvdApiKey"]?.toString() ?: ""
+        apiKey = System.getenv("NVD_API_KEY") ?: findProperty("nvdApiKey")?.toString() ?: ""
         delay = 10000
         maxRetryCount = 2
     }
