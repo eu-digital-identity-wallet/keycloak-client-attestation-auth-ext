@@ -50,6 +50,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import kotlinx.coroutines.runBlocking
+import org.jboss.logging.Logger
 import org.keycloak.Config
 import org.keycloak.OAuth2Constants
 import org.keycloak.authentication.*
@@ -61,7 +62,6 @@ import org.keycloak.provider.Provider
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.provider.ProviderConfigurationBuilder
 import org.keycloak.services.Urls
-import org.slf4j.LoggerFactory
 import java.security.interfaces.ECPublicKey
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -96,7 +96,7 @@ class AttestationBasedClientAuthenticator(
                         ensureValidClientAttestationPoP()
                     }
 
-                    log.info("Successfully authenticated Client: {}", context.client.clientId)
+                    log.info("Successfully authenticated Client: ${context.client.clientId}")
                     this@with.client = context.client
                     event.client(context.client)
                     session.clientStatus = context.clientAttestation.claims.clientStatus
@@ -279,7 +279,7 @@ class AttestationBasedClientAuthenticator(
             headers.forEach { (name, value) -> header(name, value) }
         }.build()
 
-        log.warn("Failed to authenticate Client: {}", clientAuthenticationError)
+        log.warn("Failed to authenticate Client: $clientAuthenticationError")
         client = null
         event.client(null as ClientModel?)
         session.clientStatus = null
@@ -291,7 +291,7 @@ class AttestationBasedClientAuthenticator(
     }
 
     companion object {
-        private val log = LoggerFactory.getLogger(AttestationBasedClientAuthenticator::class.java)
+        private val log = Logger.getLogger(AttestationBasedClientAuthenticator::class.java)
     }
 }
 

@@ -24,17 +24,17 @@ import com.fasterxml.jackson.core.type.TypeReference
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import kotlinx.serialization.json.Json
+import org.jboss.logging.Logger
 import org.keycloak.models.*
 import org.keycloak.protocol.oidc.mappers.*
 import org.keycloak.provider.ProviderConfigProperty
 import org.keycloak.representations.AccessToken
 import org.keycloak.representations.AccessTokenResponse
 import org.keycloak.util.JsonSerialization
-import org.slf4j.LoggerFactory
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
-private val LOGGER = LoggerFactory.getLogger(ClientStatusProtocolMapper::class.java)
+private val LOGGER = Logger.getLogger(ClientStatusProtocolMapper::class.java)
 
 class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
     AbstractOIDCProtocolMapper(),
@@ -79,7 +79,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
         token
     }.getOrElse {
-        LOGGER.warn("ClientStatus NOT added to AccessToken: {}", it)
+        LOGGER.warn("ClientStatus NOT added to AccessToken: $it")
         token
     }
 
@@ -105,7 +105,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
         accessTokenResponse
     }.getOrElse {
-        LOGGER.warn("ClientStatus NOT added to AccessTokenResponse: {}", it)
+        LOGGER.warn("ClientStatus NOT added to AccessTokenResponse: $it")
         accessTokenResponse
     }
 
@@ -134,7 +134,7 @@ class ClientStatusProtocolMapper(private val clock: Clock = Clock.System) :
 
         token
     }.getOrElse {
-        LOGGER.warn("ClientStatus NOT added to introspected AccessToken/RefreshToken: {}", it)
+        LOGGER.warn("ClientStatus NOT added to introspected AccessToken/RefreshToken: $it")
         token
     }
 }
@@ -166,5 +166,5 @@ private fun ClientStatus.associateWithAccessTokenOf(accessTokenResponse: AccessT
         mapOf(CLIENT_STATUS_NOTE_KEY to Json.encodeToString(this@associateWithAccessTokenOf)),
     )
 }.getOrElse {
-    LOGGER.warn("ClientStatus NOT associated with AccessToken of AccessTokenResponse: {}", it)
+    LOGGER.warn("ClientStatus NOT associated with AccessToken of AccessTokenResponse: $it")
 }
