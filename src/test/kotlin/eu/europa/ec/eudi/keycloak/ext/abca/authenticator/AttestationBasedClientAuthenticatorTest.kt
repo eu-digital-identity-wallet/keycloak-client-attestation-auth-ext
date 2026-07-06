@@ -171,7 +171,7 @@ class AttestationBasedClientAuthenticatorTest {
         every { formParameters.getFirst(OAuth2Constants.CLIENT_ID) } returns "eudiw"
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -571,7 +571,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, false),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, false),
         )
 
         val client = client()
@@ -602,7 +602,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, false),
         )
@@ -635,7 +635,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -668,7 +668,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -702,7 +702,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -736,7 +736,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -770,7 +770,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -808,7 +808,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -850,7 +850,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -889,7 +889,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -928,7 +928,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -967,7 +967,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -1006,7 +1006,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -1051,7 +1051,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )
@@ -1098,7 +1098,7 @@ class AttestationBasedClientAuthenticatorTest {
         )
 
         val httpClient = HttpClient(
-            trustValidatorServiceRequestHandler(VerificationContext.WALLET_INSTANCE_ATTESTATION, true),
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
             statusListTokenRequestHandler(),
             trustValidatorServiceRequestHandler(VerificationContext.WALLET_OR_KEY_STORAGE_STATUS, true),
         )

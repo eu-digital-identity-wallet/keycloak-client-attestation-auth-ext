@@ -39,11 +39,11 @@ fun interface TrustValidator {
 
 @Serializable
 enum class VerificationContext {
+    @SerialName("WalletProviderAttestation")
+    WALLET_PROVIDER_ATTESTATION,
+
     @SerialName("WalletOrKeyStorageStatus")
     WALLET_OR_KEY_STORAGE_STATUS,
-
-    @SerialName("WalletInstanceAttestation")
-    WALLET_INSTANCE_ATTESTATION,
 }
 
 fun TrustValidator(

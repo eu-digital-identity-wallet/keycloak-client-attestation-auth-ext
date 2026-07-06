@@ -144,7 +144,7 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        ensure(config.trustValidator.isTrusted(clientAttestation.x5c, VerificationContext.WALLET_INSTANCE_ATTESTATION)) {
+        ensure(config.trustValidator.isTrusted(clientAttestation.x5c, VerificationContext.WALLET_PROVIDER_ATTESTATION)) {
             ClientAuthenticationError.ClientAttestationIssuerNotTrusted
         }
         val clientStatusValid = catch({
