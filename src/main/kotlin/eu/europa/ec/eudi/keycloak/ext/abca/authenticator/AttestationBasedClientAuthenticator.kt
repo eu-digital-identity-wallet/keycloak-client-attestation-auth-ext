@@ -29,8 +29,9 @@ import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientStatusIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
-import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensureNotNull
@@ -144,7 +145,7 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        ensure(config.trustValidator.isTrusted(clientAttestation.x5c, VerificationContext.WALLET_PROVIDER_ATTESTATION)) {
+        ensure(config.isClientAttestationIssuerTrusted(clientAttestation.x5c)) {
             ClientAuthenticationError.ClientAttestationIssuerNotTrusted
         }
         val clientStatusValid = catch({
@@ -175,16 +176,32 @@ class AttestationBasedClientAuthenticator(
             return if (null != trustValidatorServiceUrl) TrustValidator(httpClient, trustValidatorServiceUrl) else TrustValidator.Ignored
         }
 
+    private val ClientAuthenticatorConfig.isClientAttestationIssuerTrusted: IsClientAttestationIssuerTrusted
+        get() =
+            if (verifyClientAttestationIssuer) {
+                IsClientAttestationIssuerTrusted(trustValidator)
+            } else {
+                IsClientAttestationIssuerTrusted.Ignored
+            }
+
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
         get() = ClientStatusValidator(httpClient, clock, clockSkew) { statusListToken ->
             option {
                 ensure(statusListToken.header.algorithm in TS3.ALLOWED_ALGORITHMS)
                 val x5c = ensureNotNull(statusListToken.header.x509CertChain?.toNonEmptyListOrNull())
                     .map { X509CertUtils.parseWithException(it.decode()) }
+
                 val signingKey = x5c.first().publicKey
                 ensure(signingKey is ECPublicKey)
                 ensure(statusListToken.verify(ECDSAVerifier(signingKey)))
-                trustValidator.isTrusted(x5c, VerificationContext.WALLET_OR_KEY_STORAGE_STATUS)
+
+                val isClientStatusIssuerTrusted =
+                    if (verifyClientStatusIssuer) {
+                        IsClientStatusIssuerTrusted(trustValidator)
+                    } else {
+                        IsClientStatusIssuerTrusted.Ignored
+                    }
+                isClientStatusIssuerTrusted(x5c)
             }.getOrElse { false }
         }
 
@@ -348,6 +365,16 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.takeIf { it.isPositive() }
             ?: DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE
 
+    val verifyClientAttestationIssuer: Boolean
+        get() = get(CLIENT_ATTESTATION_VERIFY_ISSUER)
+            ?.toBoolean()
+            ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER
+
+    val verifyClientStatusIssuer: Boolean
+        get() = get(CLIENT_STATUS_VERIFY_ISSUER)
+            ?.toBoolean()
+            ?: DEFAULT_CLIENT_STATUS_VERIFY_ISSUER
+
     operator fun get(name: String): String? = (client.getAttribute(name) ?: authenticator?.config[name])
 
     companion object {
@@ -361,6 +388,12 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
 
         const val CLIENT_ATTESTATION_POP_MAX_AGE = "clientAttestationPoP.maxAge"
         val DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE = 15.seconds
+
+        const val CLIENT_ATTESTATION_VERIFY_ISSUER = "clientAttestation.verifyIssuer"
+        const val DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER = true
+
+        const val CLIENT_STATUS_VERIFY_ISSUER = "clientStatus.verifyIssuer"
+        const val DEFAULT_CLIENT_STATUS_VERIFY_ISSUER = true
     }
 }
 
@@ -442,6 +475,20 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .defaultValue(15)
         .label("Client Attestation PoP Max Age")
         .helpText("Maximum age of the Client Attestation PoP in seconds. When 0, or negative, defaults to 15 seconds.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER)
+        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .defaultValue(ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER)
+        .label("Verify Client Attestation Issuer")
+        .helpText("Check whether the Issuer of a Client Attestation is trusted or not.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER)
+        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .defaultValue(ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER)
+        .label("Verify Client Status Issuer")
+        .helpText("Check whether the Issuer of a Client Status is trusted or not.")
         .add()
         .build()
 

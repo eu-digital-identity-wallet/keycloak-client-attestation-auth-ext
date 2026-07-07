@@ -1269,6 +1269,8 @@ private fun client(
     clockSkew: Duration = ClientAuthenticatorConfig.DEFAULT_CLOCK_SKEW,
     clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
+    verifyClientAttestationIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER,
+    verifyClientStatusIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER,
 ): ClientModel {
     val client = mockk<ClientModel>()
     every { client.clientId } returns clientId
@@ -1278,6 +1280,8 @@ private fun client(
     every { client.getAttribute(ClientAuthenticatorConfig.CLOCK_SKEW) } returns clockSkew.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER) } returns verifyClientAttestationIssuer.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER) } returns verifyClientStatusIssuer.toString()
     return client
 }
 
