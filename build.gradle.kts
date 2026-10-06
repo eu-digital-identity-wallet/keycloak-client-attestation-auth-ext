@@ -18,7 +18,6 @@ plugins {
     alias(libs.plugins.shadow)
     alias(libs.plugins.dokka)
     alias(libs.plugins.maven.publish)
-    alias(libs.plugins.dependency.check)
 }
 
 repositories {
@@ -160,14 +159,4 @@ tasks.withType<GenerateModuleMetadata> {
     suppressedValidationErrors.addAll(
         "enforced-platform",
     )
-}
-
-dependencyCheck {
-    formats = mutableListOf("XML", "HTML")
-
-    nvd {
-        apiKey = System.getenv("NVD_API_KEY") ?: findProperty("nvdApiKey")?.toString() ?: ""
-        delay = 10000
-        maxRetryCount = 2
-    }
 }
