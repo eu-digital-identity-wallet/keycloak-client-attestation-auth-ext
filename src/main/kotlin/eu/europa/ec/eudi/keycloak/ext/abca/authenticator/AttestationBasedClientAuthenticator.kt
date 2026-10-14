@@ -26,11 +26,15 @@ import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
+import eu.europa.ec.eudi.keycloak.ext.abca.authenticator.ClientAuthenticatorConfig.Companion.DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSignatureValid
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.SignatureVerificationResult
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientStatusIssuerTrusted
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustResult
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
@@ -44,7 +48,6 @@ import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientStatu
 import io.ktor.client.*
 import io.ktor.client.engine.java.*
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
@@ -145,9 +148,14 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        ensure(config.isClientAttestationIssuerTrusted(clientAttestation.x5c)) {
+        ensure(config.isClientAttestationSignatureValid(clientAttestation) is SignatureVerificationResult.Passed) {
+            ClientAuthenticationError.InvalidSignature
+        }
+
+        ensure(config.isClientAttestationIssuerTrusted(clientAttestation.x5c) is TrustResult.IsTrusted) {
             ClientAuthenticationError.ClientAttestationIssuerNotTrusted
         }
+
         val clientStatusValid = catch({
             config.clientStatusValidator.isValid(clientAttestation.claims.clientStatus)
         }) {
@@ -184,6 +192,14 @@ class AttestationBasedClientAuthenticator(
                 IsClientAttestationIssuerTrusted.Ignored
             }
 
+    private val ClientAuthenticatorConfig.isClientAttestationSignatureValid: IsClientAttestationSignatureValid
+        get() = when (signatureVerificationMethod) {
+            ClientAuthenticatorConfig.SignatureVerificationMethod.JWS -> IsClientAttestationSignatureValid.jws()
+
+            ClientAuthenticatorConfig.SignatureVerificationMethod.JADES_BB ->
+                IsClientAttestationSignatureValid.jadesBB(clock)
+        }
+
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
         get() = ClientStatusValidator(httpClient, clock, clockSkew) { statusListToken ->
             option {
@@ -201,7 +217,8 @@ class AttestationBasedClientAuthenticator(
                     } else {
                         IsClientStatusIssuerTrusted.Ignored
                     }
-                isClientStatusIssuerTrusted(x5c)
+                val result = isClientStatusIssuerTrusted(x5c)
+                result is TrustResult.IsTrusted
             }.getOrElse { false }
         }
 
@@ -279,6 +296,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Stale Client Attestation PoP"
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
             ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
+            ClientAuthenticationError.InvalidSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Wallet Instance Attestation signature is not valid"
         }
         val headers = when (clientAuthenticationError) {
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
@@ -335,6 +353,7 @@ private sealed interface ClientAuthenticationError {
     data object StaleClientAttestationPoP : ClientAuthenticationError
     data class InvalidClientAttestationPoPChallenge(val useAttestationChallenge: Challenge) : ClientAuthenticationError
     data object InactiveClientAttestationPoP : ClientAuthenticationError
+    data object InvalidSignature : ClientAuthenticationError
 }
 
 class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
@@ -370,6 +389,11 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.toBoolean()
             ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER
 
+    val signatureVerificationMethod: SignatureVerificationMethod
+        get() = SignatureVerificationMethod.fromValue(
+            get(CLIENT_ATTESTATION_SIGNATURE_VERIFICATION),
+        )
+
     val verifyClientStatusIssuer: Boolean
         get() = get(CLIENT_STATUS_VERIFY_ISSUER)
             ?.toBoolean()
@@ -392,8 +416,23 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
         const val CLIENT_ATTESTATION_VERIFY_ISSUER = "clientAttestation.verifyIssuer"
         const val DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER = true
 
+        const val CLIENT_ATTESTATION_SIGNATURE_VERIFICATION = "clientAttestation.signatureVerificationMethod"
+        val DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD = SignatureVerificationMethod.JADES_BB
         const val CLIENT_STATUS_VERIFY_ISSUER = "clientStatus.verifyIssuer"
         const val DEFAULT_CLIENT_STATUS_VERIFY_ISSUER = true
+    }
+
+    /**
+     * Selects how the signature of a Client Attestation (Wallet Instance Attestation) is verified.
+     */
+    enum class SignatureVerificationMethod(val value: String) {
+        JWS("JWS signature verification"),
+        JADES_BB("JAdES B-B signature verification"),
+        ;
+
+        companion object {
+            fun fromValue(value: String?): SignatureVerificationMethod = entries.firstOrNull { it.value == value } ?: DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD
+        }
     }
 }
 
@@ -454,6 +493,16 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .defaultValue(null)
         .label("Trust Validator Service URL")
         .helpText("URL of the Trust Validator Service. When blank, no trust verification is performed.")
+        .add()
+        .property()
+        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION)
+        .type(ProviderConfigProperty.LIST_TYPE)
+        .defaultValue(DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD.value)
+        .label("Client Attestation Signature Verification")
+        .helpText("How the signature of a Client Attestation is verified.")
+        .options(
+            ClientAuthenticatorConfig.SignatureVerificationMethod.entries.map { it.value },
+        )
         .add()
         .property()
         .name(ClientAuthenticatorConfig.CLOCK_SKEW)

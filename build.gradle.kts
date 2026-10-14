@@ -30,8 +30,9 @@ dependencies {
     implementation(enforcedPlatform(libs.kotlinx.coroutines.bom))
     implementation(enforcedPlatform(libs.ktor.bom))
     implementation(enforcedPlatform(libs.arrow.stack))
-    implementation(enforcedPlatform(libs.keycloak.dependencies.server.all))
-    testImplementation(enforcedPlatform(libs.jersey.bom))
+    implementation(platform(libs.keycloak.dependencies.server.all))
+    implementation(platform(libs.dss.bom))
+    testImplementation(platform(libs.jersey.bom))
 
     implementation(libs.kotlin.stdlib)
     testImplementation(libs.kotlin.test)
@@ -58,6 +59,11 @@ dependencies {
     testImplementation(libs.jersey.common)
 
     implementation(libs.nimbus.jose.jwt)
+    implementation(libs.dss.jades)
+    implementation(libs.dss.validation)
+    implementation(libs.dss.policy.jaxb)
+
+    implementation(libs.dss.utils.apache.commons)
     implementation(libs.statium)
     implementation(libs.uri.kmp)
 }
@@ -117,6 +123,7 @@ tasks.shadowJar {
     enableAutoRelocation = true
     enableKotlinModuleRemapping = true
     relocationPrefix = "eu.europa.ec.eudi.keycloak.ext.abca.shadow"
+    mergeServiceFiles()
 }
 
 tasks.test {

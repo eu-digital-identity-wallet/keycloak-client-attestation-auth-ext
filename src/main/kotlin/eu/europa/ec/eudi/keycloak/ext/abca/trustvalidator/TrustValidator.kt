@@ -30,10 +30,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonIgnoreUnknownKeys
 
 fun interface TrustValidator {
-    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): Boolean
+    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): TrustResult
 
     companion object {
-        val Ignored = TrustValidator { _, _ -> true }
+        val Ignored = TrustValidator { chain: NonEmptyList<Base64X509Certificate>, _ -> TrustResult.IsTrusted(chain.first()) }
     }
 }
 
@@ -49,18 +49,26 @@ enum class VerificationContext {
 fun TrustValidator(
     httpClient: HttpClient,
     service: Url,
-): TrustValidator = TrustValidator { chain, context -> httpClient.isTrusted(service, chain, context) }
+): TrustValidator = TrustValidator { chain, context ->
+    val trustResult = httpClient.isTrusted(service, chain, context)
+
+    if (trustResult.trusted) {
+        TrustResult.IsTrusted(trustResult.trustAnchor!!)
+    } else {
+        TrustResult.NotTrusted
+    }
+}
 
 private suspend fun HttpClient.isTrusted(
     service: Url,
     chain: NonEmptyList<Base64X509Certificate>,
     context: VerificationContext,
-): Boolean = post(service.toString()) {
+): TrustResponse = post(service.toString()) {
     setBody(TrustRequest(chain, context))
     contentType(ContentType.Application.Json)
     accept(ContentType.Application.Json)
     expectSuccess = true
-}.body<TrustResponse>().trusted
+}.body<TrustResponse>()
 
 @Serializable
 private data class TrustRequest(
@@ -72,4 +80,11 @@ private data class TrustRequest(
 @JsonIgnoreUnknownKeys
 internal data class TrustResponse(
     @Required @SerialName("trusted") val trusted: Boolean,
-)
+    @SerialName("trustAnchor") val trustAnchor: Base64X509Certificate? = null,
+) {
+    init {
+        if (trusted) {
+            requireNotNull(trustAnchor)
+        }
+    }
+}

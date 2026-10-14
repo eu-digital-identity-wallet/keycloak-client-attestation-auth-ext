@@ -24,7 +24,6 @@ import com.eygraber.uri.Url
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
-import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.SignedJWT
@@ -78,10 +77,6 @@ data class ClientAttestation private constructor(
             val signingKey = x5c.first().publicKey
             require(signingKey is ECPublicKey) {
                 "The first certificate in the 'x5c' claim in the JWSHeader must contain an EC public key"
-            }
-
-            require(jwt.verify(ECDSAVerifier(signingKey))) {
-                "Client Attestation signature verification failed"
             }
 
             val claims = jwt.jwtClaimsSet.decodeAs<WalletInstanceAttestationClaims>()
