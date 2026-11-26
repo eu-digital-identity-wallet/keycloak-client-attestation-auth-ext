@@ -64,9 +64,7 @@ class DefaultChallengeRealmResource(
     private val clock: Clock = Clock.System,
 ) : ChallengeRealmResource {
     private val challengeHandler = session.provider<ChallengeHandler>()
-    private val cors = Cors.builder()
-        .allowAllOrigins()
-        .allowedMethods(HttpMethod.POST)
+    private val cors = Cors.builder().allowAllOrigins()
 
     override fun generateNew(): Response {
         val challenge = runBlocking {
@@ -91,7 +89,7 @@ class DefaultChallengeRealmResource(
         return cors.add(builder)
     }
 
-    override fun preflight(): Response = cors.preflight().allowedMethods("POST", "OPTIONS").add(Response.ok())
+    override fun preflight(): Response = cors.preflight().allowedMethods(HttpMethod.POST).add(Response.ok())
 }
 
 class ChallengeRealmResourceProvider(private val session: KeycloakSession) : RealmResourceProvider {
