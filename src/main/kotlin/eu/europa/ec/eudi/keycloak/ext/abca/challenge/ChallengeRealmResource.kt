@@ -19,6 +19,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.util.provider
 import io.ktor.http.*
 import jakarta.ws.rs.HttpMethod
+import jakarta.ws.rs.OPTIONS
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
@@ -47,6 +48,10 @@ interface ChallengeRealmResource {
     @POST
     @Produces(MediaType.APPLICATION_JSON)
     fun generateNew(): Response
+
+    @Path("")
+    @OPTIONS
+    fun preflight(): Response
 }
 
 @Serializable
@@ -59,9 +64,7 @@ class DefaultChallengeRealmResource(
     private val clock: Clock = Clock.System,
 ) : ChallengeRealmResource {
     private val challengeHandler = session.provider<ChallengeHandler>()
-    private val cors = Cors.builder()
-        .allowAllOrigins()
-        .allowedMethods(HttpMethod.POST)
+    private val cors = Cors.builder().allowAllOrigins()
 
     override fun generateNew(): Response {
         val challenge = runBlocking {
@@ -85,6 +88,8 @@ class DefaultChallengeRealmResource(
             .expires(Date.from(clock.now().toJavaInstant()))
         return cors.add(builder)
     }
+
+    override fun preflight(): Response = cors.preflight().allowedMethods(HttpMethod.POST).add(Response.ok())
 }
 
 class ChallengeRealmResourceProvider(private val session: KeycloakSession) : RealmResourceProvider {
